@@ -264,12 +264,13 @@ fun ActiveProjectCard(
 
             // Monthly Hours
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = 16.dp),
-                contentAlignment = Alignment.Center
+                modifier = Modifier.fillMaxWidth()
             ) {
+                // Centered monthly hours content (always centered)
                 Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -285,30 +286,38 @@ fun ActiveProjectCard(
                     )
                 }
                 
+                // Add button aligned with the hours counter text baseline
                 if (!isTracking && activeProject != null) {
-                    Box(
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 16.dp)
+                            .offset(y = 8.dp), // Adjust this offset to align with hours text
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Light grey circular background
                         Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                    shape = CircleShape
-                                )
-                        )
-                        IconButton(
-                            onClick = onAddEntry,
-                            modifier = Modifier.size(32.dp)
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Add new entry",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            // Light grey circular background
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                        shape = CircleShape
+                                    )
                             )
+                            IconButton(
+                                onClick = onAddEntry,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Add new entry",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
