@@ -1,18 +1,28 @@
 package com.howmanyhours.viewmodel
 
+import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.howmanyhours.data.entities.Project
 import com.howmanyhours.data.entities.TimeEntry
 import com.howmanyhours.repository.TimeTrackingRepository
+import com.howmanyhours.services.TimeTrackingNotificationService
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import java.util.*
 
-class TimeTrackingViewModel(private val repository: TimeTrackingRepository) : ViewModel() {
+class TimeTrackingViewModel(
+    private val repository: TimeTrackingRepository,
+    private val context: Context
+) : ViewModel() {
+    
+    companion object {
+        private const val TAG = "TimeTrackingViewModel"
+    }
     
     private val _uiState = MutableStateFlow(TimeTrackingUiState())
     val uiState: StateFlow<TimeTrackingUiState> = _uiState.asStateFlow()
@@ -56,6 +66,16 @@ class TimeTrackingViewModel(private val repository: TimeTrackingRepository) : Vi
             val runningEntry = repository.getRunningTimeEntry()
             if (runningEntry?.isRunning == true) {
                 startTimer()
+                
+                // Resume notification service if tracking was active
+                val activeProject = _uiState.value.activeProject
+                if (activeProject != null) {
+                    TimeTrackingNotificationService.startService(
+                        context,
+                        activeProject.name,
+                        runningEntry.startTime.time
+                    )
+                }
             }
         }
     }
@@ -142,6 +162,14 @@ class TimeTrackingViewModel(private val repository: TimeTrackingRepository) : Vi
                 }
                 loadMonthlyHours(project.id)
                 startTimer()
+                
+                // Start notification service
+                Log.d(TAG, "Starting notification service for project: ${project.name}, startTime: ${timeEntry.startTime.time}")
+                TimeTrackingNotificationService.startService(
+                    context,
+                    project.name,
+                    timeEntry.startTime.time
+                )
             }
         }
     }
@@ -156,6 +184,11 @@ class TimeTrackingViewModel(private val repository: TimeTrackingRepository) : Vi
                     isTracking = false
                 )
             }
+            
+            // Stop notification service
+            Log.d(TAG, "Stopping notification service")
+            TimeTrackingNotificationService.stopService(context)
+            
             // Update monthly hours after stopping - with a small delay to ensure DB is updated
             val activeProject = _uiState.value.activeProject
             if (activeProject != null) {
@@ -175,6 +208,11 @@ class TimeTrackingViewModel(private val repository: TimeTrackingRepository) : Vi
                     isTracking = false
                 )
             }
+            
+            // Stop notification service
+            Log.d(TAG, "Stopping notification service")
+            TimeTrackingNotificationService.stopService(context)
+            
             // Monthly hours don't need to be updated since entry was discarded
         }
     }
@@ -210,6 +248,10 @@ class TimeTrackingViewModel(private val repository: TimeTrackingRepository) : Vi
             if (pendingProject != null) {
                 stopTimer()
                 repository.stopTracking()
+                
+                // Stop current notification service
+                TimeTrackingNotificationService.stopService(context)
+                
                 startTracking(pendingProject)
                 _uiState.update { 
                     it.copy(
@@ -227,6 +269,10 @@ class TimeTrackingViewModel(private val repository: TimeTrackingRepository) : Vi
             if (pendingProject != null) {
                 stopTimer()
                 repository.discardTracking()
+                
+                // Stop current notification service
+                TimeTrackingNotificationService.stopService(context)
+                
                 startTracking(pendingProject)
                 _uiState.update { 
                     it.copy(
@@ -296,11 +342,14 @@ class TimeTrackingViewModel(private val repository: TimeTrackingRepository) : Vi
         monthlyHoursJob?.cancel()
     }
 
-    class Factory(private val repository: TimeTrackingRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val repository: TimeTrackingRepository,
+        private val context: Context
+    ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(TimeTrackingViewModel::class.java)) {
                 @Suppress("UNCHECKED_CAST")
-                return TimeTrackingViewModel(repository) as T
+                return TimeTrackingViewModel(repository, context) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class")
         }
