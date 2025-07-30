@@ -1,0 +1,4 @@
+#!/bin/bash
+echo "📱 Installing How Many Hours on connected device..."
+./gradlew installDebug
+echo "✅ App installed successfully!"

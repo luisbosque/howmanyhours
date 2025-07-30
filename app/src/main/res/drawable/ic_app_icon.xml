@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Background circle -->
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M54,54m-50,0a50,50 0,1 1,100 0a50,50 0,1 1,-100 0" />
+    
+    <!-- Clock outer circle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeColor="#6750A4"
+        android:pathData="M54,54m-32,0a32,32 0,1 1,64 0a32,32 0,1 1,-64 0" />
+    
+    <!-- Hour markers -->
+    <path
+        android:strokeWidth="2"
+        android:strokeColor="#6750A4"
+        android:strokeLineCap="round"
+        android:pathData="M54,30 L54,35 M78,54 L73,54 M54,78 L54,73 M30,54 L35,54" />
+    
+    <!-- Clock hands (showing approximately 3:00 - work time) -->
+    <!-- Hour hand -->
+    <path
+        android:strokeWidth="4"
+        android:strokeColor="#6750A4"
+        android:strokeLineCap="round"
+        android:pathData="M54,54 L54,42" />
+    
+    <!-- Minute hand -->
+    <path
+        android:strokeWidth="3"
+        android:strokeColor="#6750A4"
+        android:strokeLineCap="round"
+        android:pathData="M54,54 L68,54" />
+    
+    <!-- Center dot -->
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M54,54m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    
+    <!-- Small time tracking indicator dots -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M44,75m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M50,77m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M56,78m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+</vector>

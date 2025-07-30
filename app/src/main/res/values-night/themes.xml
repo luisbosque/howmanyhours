@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    
+    <!-- Base application theme for dark mode -->
+    <style name="Base.Theme.HowManyHours" parent="android:Theme.Material.NoActionBar">
+        <!-- No custom colors - let Compose handle theming -->
+    </style>
+
+    <style name="Theme.HowManyHours" parent="Base.Theme.HowManyHours" />
+
+</resources>
