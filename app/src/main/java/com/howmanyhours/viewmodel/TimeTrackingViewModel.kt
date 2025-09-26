@@ -388,12 +388,13 @@ class TimeTrackingViewModel(
         val allEntries = repository.getAllTimeEntries()
         
         val csv = StringBuilder()
-        csv.appendLine("Project,Start Time,End Time,Duration (minutes)")
+        csv.appendLine("Project,Entry Name,Start Time,End Time,Duration (minutes)")
         
         for (entry in allEntries) {
             val project = projects.find { it.id == entry.projectId }
+            val entryName = entry.name?.let { "\"$it\"" } ?: ""  // Quote names with commas, empty if null
             csv.appendLine(
-                "${project?.name ?: "Unknown"},${entry.startTime},${entry.endTime ?: "Running"},${entry.getDurationInMinutes()}"
+                "${project?.name ?: "Unknown"},$entryName,${entry.startTime},${entry.endTime ?: "Running"},${entry.getDurationInMinutes()}"
             )
         }
         
