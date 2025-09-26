@@ -37,6 +37,9 @@ class TimeTrackingViewModel(
         loadRunningTimeEntry()
         loadAllProjectsMonthlyHours()
         startTimerIfNeeded()
+        
+        // Force immediate refresh to ensure UI is up to date
+        refreshCurrentState()
     }
 
     private fun loadActiveProject() {
@@ -59,6 +62,11 @@ class TimeTrackingViewModel(
                     isTracking = runningEntry?.isRunning == true
                 ) 
             }
+            
+            // If we have a running entry, make sure the time is up to date
+            if (runningEntry?.isRunning == true) {
+                updateCurrentRunTime()
+            }
         }
     }
     
@@ -66,6 +74,14 @@ class TimeTrackingViewModel(
         viewModelScope.launch {
             val runningEntry = repository.getRunningTimeEntry()
             if (runningEntry?.isRunning == true) {
+                // Update the UI state immediately with current data
+                _uiState.update { 
+                    it.copy(
+                        runningTimeEntry = runningEntry,
+                        isTracking = true
+                    )
+                }
+                
                 startTimer()
                 
                 // Resume notification service if tracking was active
@@ -84,10 +100,14 @@ class TimeTrackingViewModel(
     private fun startTimer() {
         stopTimer()
         timerJob = viewModelScope.launch {
+            // Immediate update when starting timer
+            updateCurrentRunTime()
+            updateMonthlyHours()
+            
             while (_uiState.value.isTracking) {
+                delay(10000) // Update every 10 seconds instead of 60
                 updateCurrentRunTime()
                 updateMonthlyHours()
-                delay(60000) // Update every minute
             }
         }
     }
@@ -109,6 +129,18 @@ class TimeTrackingViewModel(
         if (activeProject != null) {
             loadMonthlyHours(activeProject.id)
         }
+    }
+
+    private fun refreshCurrentState() {
+        viewModelScope.launch {
+            updateCurrentRunTime()
+            updateMonthlyHours()
+        }
+    }
+
+    fun forceRefresh() {
+        refreshCurrentState()
+        loadAllProjectsMonthlyHours()
     }
 
     private fun loadMonthlyHours(projectId: Long) {
@@ -251,6 +283,9 @@ class TimeTrackingViewModel(
             // Small delay to ensure state is properly updated before loading new data
             delay(50)
             loadMonthlyHours(project.id) // Then load correct hours
+            
+            // Force refresh to ensure current tracking time is up to date
+            refreshCurrentState()
         }
     }
 
