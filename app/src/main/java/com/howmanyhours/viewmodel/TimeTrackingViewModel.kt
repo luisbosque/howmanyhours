@@ -9,6 +9,7 @@ import com.howmanyhours.data.entities.Project
 import com.howmanyhours.data.entities.TimeEntry
 import com.howmanyhours.repository.TimeTrackingRepository
 import com.howmanyhours.services.TimeTrackingNotificationService
+import com.howmanyhours.backup.BackupManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -19,7 +20,13 @@ class TimeTrackingViewModel(
     private val repository: TimeTrackingRepository,
     private val context: Context
 ) : ViewModel() {
-    
+
+    // Public access for backup functionality
+    internal val backupRepository: TimeTrackingRepository get() = repository
+
+    // Backup manager
+    private val backupManager = BackupManager(context, repository)
+
     companion object {
         private const val TAG = "TimeTrackingViewModel"
     }
@@ -37,9 +44,12 @@ class TimeTrackingViewModel(
         loadRunningTimeEntry()
         refreshAllProjectsMonthlyHours()
         startTimerIfNeeded()
-        
+
         // Force immediate refresh to ensure UI is up to date
         refreshCurrentState()
+
+        // Check and create automatic backup if needed
+        checkAutoBackup()
     }
 
     private fun loadActiveProject() {
@@ -166,6 +176,16 @@ class TimeTrackingViewModel(
     fun forceRefresh() {
         refreshCurrentState()
         refreshAllProjectsMonthlyHours()
+    }
+
+    private fun checkAutoBackup() {
+        viewModelScope.launch {
+            try {
+                backupManager.checkAndCreateBackupIfNeeded()
+            } catch (e: Exception) {
+                Log.w(TAG, "Auto backup failed: ${e.message}")
+            }
+        }
     }
 
     private fun loadMonthlyHours(projectId: Long) {

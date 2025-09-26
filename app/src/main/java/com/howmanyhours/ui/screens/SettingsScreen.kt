@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,7 +39,8 @@ data class DownloadResult(
 @Composable
 fun SettingsScreen(
     viewModel: TimeTrackingViewModel = viewModel(),
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToBackup: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -103,6 +106,17 @@ fun SettingsScreen(
                             }
                         },
                         isLoading = isExporting
+                    )
+                }
+            }
+
+            item {
+                SettingsSection(title = "Data Backup & Recovery") {
+                    SettingsItem(
+                        title = "Manage Backups",
+                        subtitle = "Configure automatic backups and restore data",
+                        icon = Icons.Default.Backup,
+                        onClick = onNavigateToBackup
                     )
                 }
             }

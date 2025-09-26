@@ -21,6 +21,7 @@ import com.howmanyhours.data.database.AppDatabase
 import com.howmanyhours.repository.TimeTrackingRepository
 import com.howmanyhours.ui.screens.MainScreen
 import com.howmanyhours.ui.screens.SettingsScreen
+import com.howmanyhours.ui.screens.BackupScreen
 import com.howmanyhours.ui.theme.HowManyHoursTheme
 import com.howmanyhours.viewmodel.TimeTrackingViewModel
 
@@ -71,7 +72,12 @@ class MainActivity : ComponentActivity() {
                         )
                         "settings" -> SettingsScreen(
                             viewModel = viewModel,
-                            onNavigateBack = { currentScreen = "main" }
+                            onNavigateBack = { currentScreen = "main" },
+                            onNavigateToBackup = { currentScreen = "backup" }
+                        )
+                        "backup" -> BackupScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { currentScreen = "settings" }
                         )
                     }
                 }
