@@ -12,7 +12,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
@@ -337,7 +337,7 @@ fun ActiveProjectCard(
                         modifier = Modifier.size(width = 140.dp, height = 56.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Clear,
+                            imageVector = Icons.Filled.Stop,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
