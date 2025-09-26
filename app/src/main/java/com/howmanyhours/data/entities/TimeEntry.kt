@@ -22,7 +22,8 @@ data class TimeEntry(
     val projectId: Long,
     val startTime: Date,
     val endTime: Date? = null,
-    val isRunning: Boolean = false
+    val isRunning: Boolean = false,
+    val name: String? = null
 ) {
     fun getDurationInMinutes(): Long {
         val end = endTime ?: Date()
