@@ -178,6 +178,29 @@ class TimeTrackingViewModel(
         refreshAllProjectsMonthlyHours()
     }
 
+    fun forceRefreshAfterRestore() {
+        viewModelScope.launch {
+            // Complete refresh after database restore
+            // Reset UI state to initial values
+            _uiState.update {
+                TimeTrackingUiState() // Reset to empty state
+            }
+
+            // Cancel all running jobs to prevent conflicts
+            timerJob?.cancel()
+            monthlyHoursJob?.cancel()
+
+            // Reload everything from the restored database
+            loadActiveProject()
+            loadRunningTimeEntry()
+            refreshAllProjectsMonthlyHours()
+            startTimerIfNeeded()
+
+            // Force refresh to ensure UI is up to date
+            refreshCurrentState()
+        }
+    }
+
     private fun checkAutoBackup() {
         viewModelScope.launch {
             try {

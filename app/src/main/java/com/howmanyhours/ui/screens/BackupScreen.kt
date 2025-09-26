@@ -199,7 +199,24 @@ fun BackupScreen(
 
                 // Backup list
                 items(backups) { backup ->
-                    BackupCard(backup = backup)
+                    BackupCard(
+                        backup = backup,
+                        onRestore = {
+                            scope.launch {
+                                val result = backupManager.restoreFromBackup(backup)
+                                if (result) {
+                                    // Force the ViewModel to refresh all data after restore
+                                    viewModel.forceRefreshAfterRestore()
+
+                                    snackbarHostState.showSnackbar("Restore completed successfully")
+                                    // Refresh the UI by reloading backups
+                                    backups = backupManager.getAvailableBackups()
+                                } else {
+                                    snackbarHostState.showSnackbar("Restore failed")
+                                }
+                            }
+                        }
+                    )
                 }
 
                 // Cleanup section
@@ -244,6 +261,7 @@ fun BackupScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        showDeleteConfirmation = false // Close dialog immediately
                         scope.launch {
                             if (backupManager.deleteAllBackups()) {
                                 backups = emptyList()
@@ -252,7 +270,6 @@ fun BackupScreen(
                             } else {
                                 snackbarHostState.showSnackbar("Failed to delete backups")
                             }
-                            showDeleteConfirmation = false
                         }
                     },
                     colors = ButtonDefaults.textButtonColors(
@@ -273,7 +290,8 @@ fun BackupScreen(
 
 @Composable
 fun BackupCard(
-    backup: BackupInfo
+    backup: BackupInfo,
+    onRestore: () -> Unit
 ) {
     Card {
         Column(
@@ -281,40 +299,57 @@ fun BackupCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            Text(
-                text = getBackupTypeDisplayName(backup.type),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = SimpleDateFormat("MMM dd, yyyy 'at' HH:mm", Locale.getDefault()).format(backup.timestamp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = getBackupTypeDisplayName(backup.type),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = SimpleDateFormat("MMM dd, yyyy 'at' HH:mm", Locale.getDefault()).format(backup.timestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
-            Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
-            // Backup statistics
-            Text(
-                text = "${backup.projectCount} projects • ${backup.entryCount} entries",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium
-            )
+                    // Backup statistics
+                    Text(
+                        text = "${backup.projectCount} projects • ${backup.entryCount} entries",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
 
-            backup.lastEntryDate?.let { lastEntry ->
-                Text(
-                    text = "Last entry: ${SimpleDateFormat("MMM dd 'at' HH:mm", Locale.getDefault()).format(lastEntry)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                    backup.lastEntryDate?.let { lastEntry ->
+                        Text(
+                            text = "Last entry: ${SimpleDateFormat("MMM dd 'at' HH:mm", Locale.getDefault()).format(lastEntry)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Text(
+                        text = "Size: ${formatFileSize(backup.sizeBytes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onRestore,
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Text("Restore")
+                }
             }
-
-            Text(
-                text = "Size: ${formatFileSize(backup.sizeBytes)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }

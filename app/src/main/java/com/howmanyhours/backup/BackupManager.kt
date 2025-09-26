@@ -451,18 +451,64 @@ class BackupManager(
         }
     }
 
-    // Restore from backup (placeholder - would need more complex implementation)
+    // Restore from backup - simple replacement approach
     suspend fun restoreFromBackup(backupInfo: BackupInfo): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                android.util.Log.d("BackupManager", "Starting restore from: ${backupInfo.file.name}")
+
                 val dbFile = context.getDatabasePath("howmanyhours_database")
+                val walFile = File(dbFile.absolutePath + "-wal")
+                val shmFile = File(dbFile.absolutePath + "-shm")
 
-                // Close existing database connection first
-                // This would need coordination with the app database
+                // Step 1: Close Room database completely
+                try {
+                    val appDatabase = AppDatabase.getDatabase(context)
+                    appDatabase.close()
+                    android.util.Log.d("BackupManager", "Room database closed for restore")
+                } catch (e: Exception) {
+                    android.util.Log.w("BackupManager", "Failed to close Room database: ${e.message}")
+                }
 
+                // Give some time for cleanup
+                Thread.sleep(500)
+
+                // Step 2: Delete existing database files
+                if (dbFile.exists()) {
+                    val deleted = dbFile.delete()
+                    android.util.Log.d("BackupManager", "Main DB deleted: $deleted")
+                }
+                if (walFile.exists()) {
+                    val deleted = walFile.delete()
+                    android.util.Log.d("BackupManager", "WAL file deleted: $deleted")
+                }
+                if (shmFile.exists()) {
+                    val deleted = shmFile.delete()
+                    android.util.Log.d("BackupManager", "SHM file deleted: $deleted")
+                }
+
+                // Step 3: Copy backup to main database location
                 backupInfo.file.copyTo(dbFile, overwrite = true)
+                android.util.Log.d("BackupManager", "Backup copied to main database location")
+
+                // Step 4: Clear Room instance to force recreation
+                AppDatabase.clearInstance()
+                android.util.Log.d("BackupManager", "Room instance cleared")
+
+                // Step 5: Test that we can reopen the database
+                try {
+                    AppDatabase.getDatabase(context)
+                    android.util.Log.d("BackupManager", "Database reopened successfully after restore")
+                } catch (e: Exception) {
+                    android.util.Log.e("BackupManager", "Failed to reopen database after restore: ${e.message}")
+                    return@withContext false
+                }
+
+                android.util.Log.d("BackupManager", "Restore completed successfully")
                 true
+
             } catch (e: Exception) {
+                android.util.Log.e("BackupManager", "Restore failed: ${e.message}", e)
                 false
             }
         }
