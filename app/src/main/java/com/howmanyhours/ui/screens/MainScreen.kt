@@ -200,8 +200,7 @@ fun MainScreen(
     if (showAddEntryDialog && uiState.activeProject != null) {
         AddEntryDialog(
             onDismiss = { showAddEntryDialog = false },
-            onAddEntry = { hours ->
-                val minutes = (hours * 60).toLong()
+            onAddEntry = { minutes ->
                 viewModel.addTimeEntry(uiState.activeProject!!.id, minutes)
                 showAddEntryDialog = false
             }
@@ -510,31 +509,31 @@ fun CreateProjectDialog(
 @Composable
 fun AddEntryDialog(
     onDismiss: () -> Unit,
-    onAddEntry: (Double) -> Unit
+    onAddEntry: (Long) -> Unit
 ) {
-    var hoursText by remember { mutableStateOf("") }
+    var minutesText by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.add_time_entry)) },
         text = {
             OutlinedTextField(
-                value = hoursText,
-                onValueChange = { hoursText = it },
-                label = { Text(stringResource(R.string.hours_hint)) },
+                value = minutesText,
+                onValueChange = { minutesText = it },
+                label = { Text(stringResource(R.string.minutes_hint)) },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    val hours = hoursText.toDoubleOrNull()
-                    if (hours != null && hours > 0) {
-                        onAddEntry(hours)
+                    val minutes = minutesText.toLongOrNull()
+                    if (minutes != null && minutes > 0) {
+                        onAddEntry(minutes)
                     }
                 },
-                enabled = hoursText.toDoubleOrNull()?.let { it > 0 } == true
+                enabled = minutesText.toLongOrNull()?.let { it > 0 } == true
             ) {
                 Text(stringResource(R.string.add))
             }
