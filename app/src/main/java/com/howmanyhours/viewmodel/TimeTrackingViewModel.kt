@@ -35,7 +35,7 @@ class TimeTrackingViewModel(
     init {
         loadActiveProject()
         loadRunningTimeEntry()
-        loadAllProjectsMonthlyHours()
+        refreshAllProjectsMonthlyHours()
         startTimerIfNeeded()
         
         // Force immediate refresh to ensure UI is up to date
@@ -128,6 +128,31 @@ class TimeTrackingViewModel(
         val activeProject = _uiState.value.activeProject
         if (activeProject != null) {
             loadMonthlyHours(activeProject.id)
+            // Also refresh all projects monthly hours to keep them in sync
+            refreshAllProjectsMonthlyHours()
+        }
+    }
+    
+    private fun refreshAllProjectsMonthlyHours() {
+        viewModelScope.launch {
+            val calendar = Calendar.getInstance()
+            val currentYear = calendar.get(Calendar.YEAR)
+            val currentMonth = calendar.get(Calendar.MONTH)
+            
+            val currentProjects = projects.first()
+            val monthlyHoursMap = mutableMapOf<Long, Long>()
+            
+            for (project in currentProjects) {
+                try {
+                    val entries = repository.getTimeEntriesForMonth(project.id, currentYear, currentMonth).first()
+                    val totalMinutes = entries.sumOf { it.getDurationInMinutes() }
+                    monthlyHoursMap[project.id] = totalMinutes
+                } catch (e: Exception) {
+                    monthlyHoursMap[project.id] = 0L
+                }
+            }
+            
+            _uiState.update { it.copy(projectMonthlyHours = monthlyHoursMap.toMap()) }
         }
     }
 
@@ -140,7 +165,7 @@ class TimeTrackingViewModel(
 
     fun forceRefresh() {
         refreshCurrentState()
-        loadAllProjectsMonthlyHours()
+        refreshAllProjectsMonthlyHours()
     }
 
     private fun loadMonthlyHours(projectId: Long) {
@@ -170,16 +195,23 @@ class TimeTrackingViewModel(
             val currentMonth = calendar.get(Calendar.MONTH)
 
             projects.collect { projectList ->
+                // Build the monthly hours map properly for all projects
                 val monthlyHoursMap = mutableMapOf<Long, Long>()
                 
+                // Process each project synchronously to avoid race conditions
                 for (project in projectList) {
-                    repository.getTimeEntriesForMonth(project.id, currentYear, currentMonth)
-                        .collect { entries ->
-                            val totalMinutes = entries.sumOf { it.getDurationInMinutes() }
-                            monthlyHoursMap[project.id] = totalMinutes
-                            _uiState.update { it.copy(projectMonthlyHours = monthlyHoursMap.toMap()) }
-                        }
+                    try {
+                        val entries = repository.getTimeEntriesForMonth(project.id, currentYear, currentMonth).first()
+                        val totalMinutes = entries.sumOf { it.getDurationInMinutes() }
+                        monthlyHoursMap[project.id] = totalMinutes
+                    } catch (e: Exception) {
+                        // If there's an error loading entries for a project, set to 0
+                        monthlyHoursMap[project.id] = 0L
+                    }
                 }
+                
+                // Update UI state once with all project hours
+                _uiState.update { it.copy(projectMonthlyHours = monthlyHoursMap.toMap()) }
             }
         }
     }
@@ -248,7 +280,7 @@ class TimeTrackingViewModel(
             if (activeProject != null) {
                 delay(100) // Small delay to ensure database write completes
                 loadMonthlyHours(activeProject.id)
-                loadAllProjectsMonthlyHours() // Refresh all projects' monthly hours
+                refreshAllProjectsMonthlyHours() // Refresh all projects' monthly hours
             }
         }
     }
