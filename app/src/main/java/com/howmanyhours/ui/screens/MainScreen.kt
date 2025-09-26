@@ -117,6 +117,7 @@ fun MainScreen(
                         project = project,
                         isActive = project.id == uiState.activeProject?.id,
                         isTracking = uiState.isTracking && project.id == uiState.runningTimeEntry?.projectId,
+                        monthlyHours = uiState.projectMonthlyHours[project.id] ?: 0L,
                         onProjectClick = { viewModel.selectProject(project) },
                         onDeleteClick = { showDeleteDialog = project }
                     )
@@ -336,7 +337,7 @@ fun ActiveProjectCard(
                         modifier = Modifier.size(width = 140.dp, height = 56.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Clear,
+                            imageVector = Icons.Filled.Clear,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
@@ -388,6 +389,7 @@ fun ProjectCard(
     project: Project,
     isActive: Boolean,
     isTracking: Boolean,
+    monthlyHours: Long,
     onProjectClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
@@ -423,21 +425,36 @@ fun ProjectCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                Text(
-                    text = project.name,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                
-                if (isTracking) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(
-                                color = Color(0xFF4CAF50),
-                                shape = CircleShape
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = project.name,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        
+                        if (isTracking) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(
+                                        color = Color(0xFF4CAF50),
+                                        shape = CircleShape
+                                    )
                             )
-                    )
+                        }
+                    }
+                    
+                    if (monthlyHours > 0) {
+                        Text(
+                            text = "This month: ${formatDuration(monthlyHours)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
                 }
             }
             

@@ -35,6 +35,7 @@ class TimeTrackingViewModel(
     init {
         loadActiveProject()
         loadRunningTimeEntry()
+        loadAllProjectsMonthlyHours()
         startTimerIfNeeded()
     }
 
@@ -130,6 +131,27 @@ class TimeTrackingViewModel(
         }
     }
 
+    private fun loadAllProjectsMonthlyHours() {
+        viewModelScope.launch {
+            val calendar = Calendar.getInstance()
+            val currentYear = calendar.get(Calendar.YEAR)
+            val currentMonth = calendar.get(Calendar.MONTH)
+
+            projects.collect { projectList ->
+                val monthlyHoursMap = mutableMapOf<Long, Long>()
+                
+                for (project in projectList) {
+                    repository.getTimeEntriesForMonth(project.id, currentYear, currentMonth)
+                        .collect { entries ->
+                            val totalMinutes = entries.sumOf { it.getDurationInMinutes() }
+                            monthlyHoursMap[project.id] = totalMinutes
+                            _uiState.update { it.copy(projectMonthlyHours = monthlyHoursMap.toMap()) }
+                        }
+                }
+            }
+        }
+    }
+
     fun createProject(name: String) {
         viewModelScope.launch {
             val project = Project(name = name)
@@ -194,6 +216,7 @@ class TimeTrackingViewModel(
             if (activeProject != null) {
                 delay(100) // Small delay to ensure database write completes
                 loadMonthlyHours(activeProject.id)
+                loadAllProjectsMonthlyHours() // Refresh all projects' monthly hours
             }
         }
     }
@@ -322,6 +345,7 @@ class TimeTrackingViewModel(
             if (_uiState.value.activeProject?.id == projectId) {
                 loadMonthlyHours(projectId)
             }
+            loadAllProjectsMonthlyHours() // Refresh all projects' monthly hours
         }
     }
 
@@ -333,6 +357,7 @@ class TimeTrackingViewModel(
             if (_uiState.value.activeProject?.id == projectId) {
                 loadMonthlyHours(projectId)
             }
+            loadAllProjectsMonthlyHours() // Refresh all projects' monthly hours
         }
     }
     
@@ -361,6 +386,7 @@ data class TimeTrackingUiState(
     val runningTimeEntry: TimeEntry? = null,
     val isTracking: Boolean = false,
     val monthlyHours: Long = 0,
+    val projectMonthlyHours: Map<Long, Long> = emptyMap(),
     val showSwitchConfirmation: Boolean = false,
     val pendingProject: Project? = null
 )
