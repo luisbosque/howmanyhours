@@ -76,10 +76,13 @@ dependencies {
     
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    
+
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.7.0")
+
+    // DocumentFile for file access
+    implementation("androidx.documentfile:documentfile:1.0.1")
     
     // Unit Testing
     testImplementation("junit:junit:4.13.2")

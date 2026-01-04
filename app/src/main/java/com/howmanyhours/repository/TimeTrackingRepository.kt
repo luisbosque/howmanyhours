@@ -1,16 +1,42 @@
 package com.howmanyhours.repository
 
+import com.howmanyhours.data.dao.PeriodCloseDao
 import com.howmanyhours.data.dao.ProjectDao
 import com.howmanyhours.data.dao.TimeEntryDao
+import com.howmanyhours.data.entities.PeriodClose
 import com.howmanyhours.data.entities.Project
 import com.howmanyhours.data.entities.TimeEntry
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import java.text.SimpleDateFormat
 import java.util.*
 import java.util.Calendar
+import java.util.TimeZone
+
+data class Period(
+    val projectId: Long,
+    val startTime: Date,
+    val endTime: Date,
+    val isCurrent: Boolean,
+    val closeRecord: PeriodClose? = null
+) {
+    fun getLabel(): String {
+        return if (closeRecord?.isAutomatic == true) {
+            val fmt = SimpleDateFormat("MMM yyyy", Locale.getDefault())
+            fmt.timeZone = TimeZone.getDefault()
+            fmt.format(startTime)
+        } else {
+            val fmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+            fmt.timeZone = TimeZone.getDefault()
+            "${fmt.format(startTime)} - ${fmt.format(endTime)}"
+        }
+    }
+}
 
 class TimeTrackingRepository(
     private val projectDao: ProjectDao,
-    private val timeEntryDao: TimeEntryDao
+    private val timeEntryDao: TimeEntryDao,
+    private val periodCloseDao: PeriodCloseDao
 ) {
     fun getAllProjects(): Flow<List<Project>> = projectDao.getAllProjects()
 
@@ -38,7 +64,7 @@ class TimeTrackingRepository(
         timeEntryDao.getRunningTimeEntryForProject(projectId)
 
     fun getTimeEntriesForMonth(projectId: Long, year: Int, month: Int): Flow<List<TimeEntry>> {
-        val calendar = Calendar.getInstance()
+        val calendar = Calendar.getInstance(TimeZone.getDefault())
         calendar.set(year, month, 1, 0, 0, 0)
         calendar.set(Calendar.MILLISECOND, 0)
         val monthStart = calendar.time
@@ -50,6 +76,11 @@ class TimeTrackingRepository(
     }
 
     suspend fun getAllTimeEntries(): List<TimeEntry> = timeEntryDao.getAllTimeEntries()
+
+    suspend fun getTimeEntriesBatch(limit: Int, offset: Int): List<TimeEntry> =
+        timeEntryDao.getTimeEntriesBatch(limit, offset)
+
+    suspend fun getTimeEntriesCount(): Int = timeEntryDao.getTimeEntriesCount()
 
     suspend fun startTracking(projectId: Long): TimeEntry {
         stopAllTracking()
@@ -90,62 +121,141 @@ class TimeTrackingRepository(
         timeEntryDao.stopAllRunningEntries(Date())
     }
 
-    suspend fun getTotalHoursForMonth(projectId: Long, year: Int, month: Int): Long {
-        val calendar = Calendar.getInstance()
-        calendar.set(year, month, 1, 0, 0, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        val monthStart = calendar.time
-
-        calendar.add(Calendar.MONTH, 1)
-        val monthEnd = calendar.time
-
-        val entries = timeEntryDao.getTimeEntriesForMonth(projectId, monthStart, monthEnd)
-        // Since we need the actual data, we'll collect it
-        // In a real app, you might want to create a suspend function for this
-        return 0 // Placeholder - will be calculated in the ViewModel
-    }
-
-    suspend fun setMonthlyHours(projectId: Long, year: Int, month: Int, newHoursInMinutes: Long) {
-        val calendar = Calendar.getInstance()
-        calendar.set(year, month, 1, 0, 0, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        val monthStart = calendar.time
-
-        calendar.add(Calendar.MONTH, 1)
-        val monthEnd = calendar.time
-
-        // Delete all existing entries for this month and project
-        timeEntryDao.deleteTimeEntriesForMonth(projectId, monthStart, monthEnd)
-
-        // Create a new entry with the specified hours if > 0
-        if (newHoursInMinutes > 0) {
-            val now = Date()
-            val timeEntry = TimeEntry(
-                projectId = projectId,
-                startTime = now,
-                endTime = now,
-                isRunning = false
-            )
-            // We need to manually set the duration by calculating the end time
-            val endTime = Date(now.time + (newHoursInMinutes * 60 * 1000))
-            val finalEntry = timeEntry.copy(endTime = endTime)
-            timeEntryDao.insertTimeEntry(finalEntry)
-        }
-    }
-
-    suspend fun addTimeEntry(projectId: Long, hoursInMinutes: Long) {
+    suspend fun addTimeEntry(projectId: Long, hoursInMinutes: Long, name: String? = null) {
         if (hoursInMinutes > 0) {
             val now = Date()
             val timeEntry = TimeEntry(
                 projectId = projectId,
                 startTime = now,
                 endTime = now,
-                isRunning = false
+                isRunning = false,
+                name = name
             )
             // Calculate the end time to represent the duration
             val endTime = Date(now.time + (hoursInMinutes * 60 * 1000))
             val finalEntry = timeEntry.copy(endTime = endTime)
             timeEntryDao.insertTimeEntry(finalEntry)
         }
+    }
+
+    // Period management methods
+
+    suspend fun getCurrentPeriod(projectId: Long): Period {
+        val project = getProjectById(projectId) ?: throw IllegalArgumentException("Project not found")
+        val lastClose = periodCloseDao.getLastCloseBefore(projectId, Date())
+
+        val periodStart = if (lastClose != null) {
+            Date(lastClose.closeTime.time + 1)
+        } else {
+            project.createdAt
+        }
+
+        val periodEnd = Date()
+
+        return Period(
+            projectId = projectId,
+            startTime = periodStart,
+            endTime = periodEnd,
+            isCurrent = true
+        )
+    }
+
+    suspend fun getAllPeriods(projectId: Long): List<Period> {
+        val project = getProjectById(projectId) ?: throw IllegalArgumentException("Project not found")
+        val closes = periodCloseDao.getPeriodsForProject(projectId).first()
+
+        val periods = mutableListOf<Period>()
+        var currentStart = project.createdAt
+
+        for (close in closes) {
+            periods.add(Period(
+                projectId = projectId,
+                startTime = currentStart,
+                endTime = close.closeTime,
+                isCurrent = false,
+                closeRecord = close
+            ))
+            currentStart = Date(close.closeTime.time + 1)
+        }
+
+        periods.add(Period(
+            projectId = projectId,
+            startTime = currentStart,
+            endTime = Date(),
+            isCurrent = true
+        ))
+
+        return periods
+    }
+
+    suspend fun closePeriod(projectId: Long) {
+        val project = getProjectById(projectId) ?: throw IllegalArgumentException("Project not found")
+        if (project.periodMode != "manual") {
+            throw IllegalStateException("Can only manually close periods in manual mode")
+        }
+
+        val closeTime = Date()
+        val periodClose = PeriodClose(
+            projectId = projectId,
+            closeTime = closeTime,
+            isAutomatic = false
+        )
+        periodCloseDao.insertPeriodClose(periodClose)
+    }
+
+    suspend fun checkMonthlyAutoClose(projectId: Long) {
+        val project = getProjectById(projectId) ?: return
+        if (project.periodMode != "monthly") return
+
+        val calendar = Calendar.getInstance(TimeZone.getDefault())
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        val currentMonthStart = calendar.time
+
+        // Only create a close for the current month if the project was created before this month
+        // This prevents creating a backwards period for projects created during the current month
+        if (project.createdAt >= currentMonthStart) {
+            // Project was created in the current month, no close needed yet
+            return
+        }
+
+        val existingClose = periodCloseDao.getAutoCloseAtTime(projectId, currentMonthStart)
+        if (existingClose == null) {
+            val periodClose = PeriodClose(
+                projectId = projectId,
+                closeTime = currentMonthStart,
+                isAutomatic = true
+            )
+            periodCloseDao.insertPeriodClose(periodClose)
+        }
+    }
+
+    suspend fun changePeriodMode(projectId: Long, newMode: String) {
+        val project = getProjectById(projectId) ?: throw IllegalArgumentException("Project not found")
+        val updatedProject = project.copy(periodMode = newMode)
+        updateProject(updatedProject)
+    }
+
+    fun getEntriesForPeriod(period: Period): Flow<List<TimeEntry>> {
+        return if (period.isCurrent) {
+            timeEntryDao.getTimeEntriesForCurrentPeriod(period.projectId, period.startTime)
+        } else {
+            timeEntryDao.getTimeEntriesForPeriod(period.projectId, period.startTime, period.endTime)
+        }
+    }
+
+    suspend fun updateEntryName(entryId: Long, newName: String) {
+        val entry = timeEntryDao.getAllTimeEntries().find { it.id == entryId }
+        entry?.let {
+            val updatedEntry = it.copy(name = newName.trim().ifEmpty { null })
+            timeEntryDao.updateTimeEntry(updatedEntry)
+        }
+    }
+
+    suspend fun getAllPeriodCloses(): List<PeriodClose> {
+        return periodCloseDao.getAllPeriodCloses()
     }
 }

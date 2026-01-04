@@ -28,10 +28,12 @@ import com.howmanyhours.viewmodel.TimeTrackingViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.TimeZone
 
 data class DownloadResult(
     val success: Boolean,
     val filename: String = "",
+    val filePath: String = "",
     val error: String = ""
 )
 
@@ -87,12 +89,11 @@ fun SettingsScreen(
                             scope.launch {
                                 isExporting = true
                                 try {
-                                    val csvData = viewModel.exportToCsv()
-                                    val result = downloadCsvFile(context, csvData)
+                                    val result = exportCsvFile(context, viewModel)
                                     if (result.success) {
                                         snackbarHostState.showSnackbar(
-                                            message = "CSV downloaded: ${result.filename}",
-                                            duration = SnackbarDuration.Short
+                                            message = "CSV saved to: ${result.filePath}",
+                                            duration = SnackbarDuration.Long
                                         )
                                     } else {
                                         snackbarHostState.showSnackbar(
@@ -225,37 +226,28 @@ fun SettingsItem(
     }
 }
 
-private fun downloadCsvFile(context: Context, csvData: String): DownloadResult {
-    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+private suspend fun exportCsvFile(context: Context, viewModel: TimeTrackingViewModel): DownloadResult {
+    val fmt = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+    fmt.timeZone = TimeZone.getDefault()
+    val timestamp = fmt.format(Date())
     val fileName = "time_tracking_$timestamp.csv"
-    
+
     return try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Use MediaStore for Android 10+ (scoped storage)
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-            }
-            
-            val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            uri?.let { 
-                context.contentResolver.openOutputStream(it)?.use { outputStream ->
-                    outputStream.write(csvData.toByteArray())
-                }
-                DownloadResult(success = true, filename = fileName)
-            } ?: DownloadResult(success = false, error = "Failed to create file")
-        } else {
-            // Use direct file access for older Android versions
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val file = File(downloadsDir, fileName)
-            
-            FileWriter(file).use { writer ->
-                writer.write(csvData)
-            }
-            DownloadResult(success = true, filename = fileName)
+        // Use app-specific external storage (Documents folder)
+        // This is private to the app but accessible via file manager
+        // No storage permission needed, more secure than public Downloads
+        val documentsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            ?: return DownloadResult(success = false, error = "External storage not available")
+
+        val file = File(documentsDir, fileName)
+
+        // Stream CSV data directly to file in batches to avoid memory issues
+        file.outputStream().use { outputStream ->
+            viewModel.exportToCsvToStream(outputStream)
         }
-        
+
+        DownloadResult(success = true, filename = fileName, filePath = file.absolutePath)
+
     } catch (e: Exception) {
         DownloadResult(success = false, error = e.message ?: "Unknown error")
     }

@@ -19,11 +19,19 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.howmanyhours.data.database.AppDatabase
 import com.howmanyhours.repository.TimeTrackingRepository
-import com.howmanyhours.ui.screens.MainScreen
-import com.howmanyhours.ui.screens.SettingsScreen
-import com.howmanyhours.ui.screens.BackupScreen
+import com.howmanyhours.repository.Period
+import com.howmanyhours.ui.screens.*
 import com.howmanyhours.ui.theme.HowManyHoursTheme
 import com.howmanyhours.viewmodel.TimeTrackingViewModel
+
+sealed class Screen {
+    object Main : Screen()
+    object Settings : Screen()
+    object Backup : Screen()
+    data class ProjectDetail(val projectId: Long) : Screen()
+    data class PeriodHistory(val projectId: Long) : Screen()
+    data class PeriodDetail(val projectId: Long, val period: Period) : Screen()
+}
 
 class MainActivity : ComponentActivity() {
     
@@ -35,7 +43,7 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         // Request notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -46,38 +54,109 @@ class MainActivity : ComponentActivity() {
                 requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-        
-        val database = AppDatabase.getDatabase(this)
+
+        // Try to initialize database with auto-recovery on failure
+        var databaseRecovered = false
+        val database = try {
+            AppDatabase.getDatabase(this)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Database initialization failed: ${e.message}", e)
+            // Auto-recover: Delete corrupted database and start fresh
+            AppDatabase.emergencyReset(this)
+            databaseRecovered = true
+            // Try again with clean database
+            AppDatabase.getDatabase(this)
+        }
+
         val repository = TimeTrackingRepository(
             database.projectDao(),
-            database.timeEntryDao()
+            database.timeEntryDao(),
+            database.periodCloseDao()
         )
-        
+
         setContent {
             HowManyHoursTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    var currentScreen by remember { mutableStateOf("main") }
-                    
+                    var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
+                    var showRecoveryDialog by remember { mutableStateOf(databaseRecovered) }
+
                     val viewModel: TimeTrackingViewModel = viewModel(
                         factory = TimeTrackingViewModel.Factory(repository, this@MainActivity)
                     )
-                    
-                    when (currentScreen) {
-                        "main" -> MainScreen(
-                            viewModel = viewModel,
-                            onNavigateToSettings = { currentScreen = "settings" }
+
+                    // Show recovery dialog if database was auto-recovered
+                    if (showRecoveryDialog) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { showRecoveryDialog = false },
+                            title = { androidx.compose.material3.Text("Database Recovered") },
+                            text = {
+                                androidx.compose.material3.Text(
+                                    "The app detected corrupted data and automatically reset the database to prevent crashes.\n\n" +
+                                    "All data has been cleared. You can now:\n" +
+                                    "• Restore a recent backup (Settings → Manage Backups)\n" +
+                                    "• Start fresh with a clean app\n\n" +
+                                    "Sorry for the inconvenience!"
+                                )
+                            },
+                            confirmButton = {
+                                androidx.compose.material3.TextButton(
+                                    onClick = {
+                                        showRecoveryDialog = false
+                                        currentScreen = Screen.Backup
+                                    }
+                                ) {
+                                    androidx.compose.material3.Text("Restore Backup")
+                                }
+                            },
+                            dismissButton = {
+                                androidx.compose.material3.TextButton(onClick = { showRecoveryDialog = false }) {
+                                    androidx.compose.material3.Text("Start Fresh")
+                                }
+                            }
                         )
-                        "settings" -> SettingsScreen(
+                    }
+
+                    when (val screen = currentScreen) {
+                        is Screen.Main -> MainScreen(
                             viewModel = viewModel,
-                            onNavigateBack = { currentScreen = "main" },
-                            onNavigateToBackup = { currentScreen = "backup" }
+                            onNavigateToSettings = { currentScreen = Screen.Settings },
+                            onNavigateToProjectDetail = { projectId ->
+                                currentScreen = Screen.ProjectDetail(projectId)
+                            }
                         )
-                        "backup" -> BackupScreen(
+                        is Screen.Settings -> SettingsScreen(
                             viewModel = viewModel,
-                            onNavigateBack = { currentScreen = "settings" }
+                            onNavigateBack = { currentScreen = Screen.Main },
+                            onNavigateToBackup = { currentScreen = Screen.Backup }
+                        )
+                        is Screen.Backup -> BackupScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { currentScreen = Screen.Settings }
+                        )
+                        is Screen.ProjectDetail -> ProjectDetailScreen(
+                            viewModel = viewModel,
+                            projectId = screen.projectId,
+                            onNavigateBack = { currentScreen = Screen.Main },
+                            onNavigateToPeriodHistory = { projectId ->
+                                currentScreen = Screen.PeriodHistory(projectId)
+                            }
+                        )
+                        is Screen.PeriodHistory -> PeriodHistoryScreen(
+                            viewModel = viewModel,
+                            projectId = screen.projectId,
+                            onNavigateBack = { currentScreen = Screen.ProjectDetail(screen.projectId) },
+                            onNavigateToPeriodDetail = { period ->
+                                currentScreen = Screen.PeriodDetail(screen.projectId, period)
+                            }
+                        )
+                        is Screen.PeriodDetail -> PeriodDetailScreen(
+                            viewModel = viewModel,
+                            projectId = screen.projectId,
+                            period = screen.period,
+                            onNavigateBack = { currentScreen = Screen.PeriodHistory(screen.projectId) }
                         )
                     }
                 }

@@ -2,6 +2,7 @@ package com.howmanyhours.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
@@ -9,25 +10,31 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.howmanyhours.R
+import com.howmanyhours.backup.BackupManager
 import com.howmanyhours.data.entities.Project
 import com.howmanyhours.viewmodel.TimeTrackingViewModel
 import java.util.*
@@ -36,14 +43,27 @@ import java.util.*
 @Composable
 fun MainScreen(
     viewModel: TimeTrackingViewModel = viewModel(),
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToProjectDetail: (Long) -> Unit
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val projects by viewModel.projects.collectAsState(initial = emptyList())
-    
+
+    // Backup manager to check auto-export status
+    val backupManager = remember { BackupManager(context, viewModel.backupRepository) }
+    var isAutoExportEnabled by remember { mutableStateOf(backupManager.isAutoExportEnabled()) }
+
+    // Refresh auto-export status when screen becomes visible
+    LaunchedEffect(Unit) {
+        isAutoExportEnabled = backupManager.isAutoExportEnabled()
+    }
+
     var showCreateDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<Project?>(null) }
     var showAddEntryDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showBackupStatusTooltip by remember { mutableStateOf(false) }
 
     Scaffold(
         floatingActionButton = {
@@ -71,8 +91,57 @@ fun MainScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
                 )
-                IconButton(onClick = onNavigateToSettings) {
-                    Icon(Icons.Default.Settings, contentDescription = "Settings")
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Very subtle backup status indicator
+                    Box {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = "Backup status",
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { showBackupStatusTooltip = !showBackupStatusTooltip },
+                            tint = if (isAutoExportEnabled) {
+                                Color(0xFF4CAF50) // Green for enabled
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.5f) // Grey for disabled
+                            }
+                        )
+
+                        // Floating tooltip using Popup
+                        if (showBackupStatusTooltip) {
+                            Popup(
+                                alignment = Alignment.BottomEnd,
+                                onDismissRequest = { showBackupStatusTooltip = false },
+                                properties = PopupProperties(focusable = true)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.width(200.dp),
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shadowElevation = 8.dp,
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Text(
+                                        text = if (isAutoExportEnabled) {
+                                            "Backups are automatically exported to external storage."
+                                        } else {
+                                            "Backups stored in app only. Export to external storage for safety."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
                 }
             }
             
@@ -82,6 +151,7 @@ fun MainScreen(
                 activeProject = uiState.activeProject,
                 runningTimeEntry = uiState.runningTimeEntry,
                 monthlyHours = uiState.monthlyHours,
+                currentPeriod = uiState.currentPeriod,
                 isTracking = uiState.isTracking && uiState.activeProject?.id == uiState.runningTimeEntry?.projectId,
                 onStartStop = {
                     if (uiState.isTracking && uiState.activeProject?.id == uiState.runningTimeEntry?.projectId) {
@@ -97,6 +167,9 @@ fun MainScreen(
                 },
                 onAddEntry = {
                     showAddEntryDialog = true
+                },
+                onRenameEntry = {
+                    showRenameDialog = true
                 }
             )
 
@@ -119,7 +192,8 @@ fun MainScreen(
                         isTracking = uiState.isTracking && project.id == uiState.runningTimeEntry?.projectId,
                         monthlyHours = uiState.projectMonthlyHours[project.id] ?: 0L,
                         onProjectClick = { viewModel.selectProject(project) },
-                        onDeleteClick = { showDeleteDialog = project }
+                        onDeleteClick = { showDeleteDialog = project },
+                        onDetailsClick = { onNavigateToProjectDetail(project.id) }
                     )
                 }
             }
@@ -200,9 +274,21 @@ fun MainScreen(
     if (showAddEntryDialog && uiState.activeProject != null) {
         AddEntryDialog(
             onDismiss = { showAddEntryDialog = false },
-            onAddEntry = { minutes ->
-                viewModel.addTimeEntry(uiState.activeProject!!.id, minutes)
+            onAddEntry = { minutes, name ->
+                viewModel.addTimeEntry(uiState.activeProject!!.id, minutes, name)
                 showAddEntryDialog = false
+            }
+        )
+    }
+
+    // Rename Entry Dialog
+    if (showRenameDialog && uiState.runningTimeEntry != null) {
+        RenameEntryDialog(
+            currentName = uiState.runningTimeEntry?.name ?: "",
+            onDismiss = { showRenameDialog = false },
+            onRename = { newName ->
+                viewModel.updateRunningEntryName(newName)
+                showRenameDialog = false
             }
         )
     }
@@ -213,10 +299,12 @@ fun ActiveProjectCard(
     activeProject: Project?,
     runningTimeEntry: com.howmanyhours.data.entities.TimeEntry?,
     monthlyHours: Long,
+    currentPeriod: com.howmanyhours.repository.Period?,
     isTracking: Boolean,
     onStartStop: () -> Unit,
     onDiscard: () -> Unit,
-    onAddEntry: () -> Unit
+    onAddEntry: () -> Unit,
+    onRenameEntry: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -257,8 +345,40 @@ fun ActiveProjectCard(
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF2E7D32) // Dark green text
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Entry name display and rename button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = runningTimeEntry?.name?.let { "\"$it\"" } ?: "Unnamed",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (runningTimeEntry?.name != null) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            },
+                            fontStyle = if (runningTimeEntry?.name == null) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = onRenameEntry,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "Rename entry",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
                 }
-                
+
                 Spacer(modifier = Modifier.height(20.dp))
             }
 
@@ -266,19 +386,29 @@ fun ActiveProjectCard(
             Box(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Centered monthly hours content (always centered)
+                // Centered period hours content (always centered)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = "This Month",
-                        style = if (isTracking) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = if (isTracking) FontWeight.Normal else FontWeight.Medium
-                    )
+                    // Period-aware title
+                    if (activeProject?.periodMode == "monthly") {
+                        Text(
+                            text = "This Month",
+                            style = if (isTracking) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (isTracking) FontWeight.Normal else FontWeight.Medium
+                        )
+                    } else {
+                        Text(
+                            text = "This Period",
+                            style = if (isTracking) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (isTracking) FontWeight.Normal else FontWeight.Medium
+                        )
+                    }
                     Text(
                         text = formatDuration(monthlyHours),
                         style = if (isTracking) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineLarge,
@@ -390,7 +520,8 @@ fun ProjectCard(
     isTracking: Boolean,
     monthlyHours: Long,
     onProjectClick: () -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onDetailsClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -456,13 +587,23 @@ fun ProjectCard(
                     }
                 }
             }
-            
-            IconButton(onClick = onDeleteClick) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete project",
-                    tint = MaterialTheme.colorScheme.error
-                )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IconButton(onClick = onDetailsClick) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = "Project details",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                IconButton(onClick = onDeleteClick) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete project",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }
@@ -481,8 +622,9 @@ fun CreateProjectDialog(
         text = {
             OutlinedTextField(
                 value = projectName,
-                onValueChange = { projectName = it },
+                onValueChange = { if (it.length <= 64) projectName = it },
                 label = { Text("Project Name") },
+                supportingText = { Text("${projectName.length}/64") },
                 singleLine = true
             )
         },
@@ -509,28 +651,39 @@ fun CreateProjectDialog(
 @Composable
 fun AddEntryDialog(
     onDismiss: () -> Unit,
-    onAddEntry: (Long) -> Unit
+    onAddEntry: (Long, String?) -> Unit
 ) {
     var minutesText by remember { mutableStateOf("") }
+    var entryName by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.add_time_entry)) },
         text = {
-            OutlinedTextField(
-                value = minutesText,
-                onValueChange = { minutesText = it },
-                label = { Text(stringResource(R.string.minutes_hint)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = minutesText,
+                    onValueChange = { minutesText = it },
+                    label = { Text(stringResource(R.string.minutes_hint)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                OutlinedTextField(
+                    value = entryName,
+                    onValueChange = { entryName = it },
+                    label = { Text("Entry Name (optional)") },
+                    placeholder = { Text("e.g., Client meeting, Code review") },
+                    singleLine = true
+                )
+            }
         },
         confirmButton = {
             TextButton(
                 onClick = {
                     val minutes = minutesText.toLongOrNull()
                     if (minutes != null && minutes > 0) {
-                        onAddEntry(minutes)
+                        val name = entryName.trim().ifEmpty { null }
+                        onAddEntry(minutes, name)
                     }
                 },
                 enabled = minutesText.toLongOrNull()?.let { it > 0 } == true
@@ -541,6 +694,43 @@ fun AddEntryDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+fun RenameEntryDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit
+) {
+    var entryName by remember { mutableStateOf(currentName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Name Time Entry") },
+        text = {
+            OutlinedTextField(
+                value = entryName,
+                onValueChange = { entryName = it },
+                label = { Text("Entry Name (optional)") },
+                placeholder = { Text("e.g., Client meeting, Code review") },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onRename(entryName.trim())
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
     )

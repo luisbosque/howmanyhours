@@ -1,8 +1,10 @@
 package com.howmanyhours.backup
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.database.sqlite.SQLiteDatabase
+import androidx.documentfile.provider.DocumentFile
 import androidx.room.Room
 import com.howmanyhours.data.database.AppDatabase
 import com.howmanyhours.repository.TimeTrackingRepository
@@ -13,6 +15,7 @@ import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.TimeZone
 
 data class BackupInfo(
     val file: File,
@@ -29,6 +32,19 @@ data class BackupStats(
     val entryCount: Int,
     val lastEntryDate: Date?
 )
+
+data class BackupValidation(
+    val isValid: Boolean,
+    val backupVersion: Int,
+    val currentVersion: Int,
+    val requiresDestructiveMigration: Boolean,
+    val message: String
+)
+
+sealed class RestoreResult {
+    object Success : RestoreResult()
+    data class Failed(val error: String) : RestoreResult()
+}
 
 enum class BackupType {
     DAILY,
@@ -53,7 +69,9 @@ class BackupManager(
         private const val MAX_DAILY_BACKUPS = 7
         private const val MAX_MONTHLY_BACKUPS = 6
 
-        private val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+        private val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).apply {
+            timeZone = TimeZone.getDefault()
+        }
     }
 
     init {
@@ -109,7 +127,7 @@ class BackupManager(
                     BackupType.DAILY -> "daily_backup_${dateFormat.format(timestamp)}.db"
                     BackupType.PRE_MIGRATION -> "pre_migration_${dateFormat.format(timestamp)}.db"
                     BackupType.MANUAL -> "manual_backup_${dateFormat.format(timestamp)}.db"
-                    BackupType.MONTHLY -> "monthly_backup_${SimpleDateFormat("yyyyMM", Locale.getDefault()).format(timestamp)}.db"
+                    BackupType.MONTHLY -> "monthly_backup_${SimpleDateFormat("yyyyMM", Locale.getDefault()).apply { timeZone = TimeZone.getDefault() }.format(timestamp)}.db"
                     BackupType.EMERGENCY -> "emergency_backup_latest.db"
                 }
 
@@ -157,7 +175,14 @@ class BackupManager(
                     cleanupOldBackups(type)
 
                     // Get backup info
-                    return@withContext getBackupInfo(backupFile, type, timestamp)
+                    val backupInfo = getBackupInfo(backupFile, type, timestamp)
+
+                    // Auto-export to external folder if enabled
+                    if (backupInfo != null) {
+                        autoExportBackupIfEnabled(backupInfo)
+                    }
+
+                    return@withContext backupInfo
                 } else {
                     android.util.Log.w("BackupManager", "Source database file does not exist: ${dbFile.absolutePath}")
                 }
@@ -362,154 +387,512 @@ class BackupManager(
         }
     }
 
-    // Create backup by exporting all current data to a new database file
+    // Create backup by copying the actual Room database file
     private suspend fun createBackupByExport(backupFile: File): Boolean {
-        return try {
-            // Get all current data from repository
-            val projects = repository.getAllProjects().first()
-            val entries = repository.getAllTimeEntries()
-
-            android.util.Log.d("BackupManager", "Exporting ${projects.size} projects and ${entries.size} entries")
-
-            // Create a new database file
-            var backupDb: SQLiteDatabase? = null
+        return withContext(Dispatchers.IO) {
             try {
-                backupDb = SQLiteDatabase.openOrCreateDatabase(backupFile, null)
+                val dbFile = context.getDatabasePath("howmanyhours_database")
 
-                // Create tables
-                backupDb.execSQL("""
-                    CREATE TABLE projects (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        name TEXT NOT NULL,
-                        createdAt INTEGER NOT NULL,
-                        isActive INTEGER NOT NULL
-                    )
-                """.trimIndent())
-
-                backupDb.execSQL("""
-                    CREATE TABLE time_entries (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        projectId INTEGER NOT NULL,
-                        startTime INTEGER NOT NULL,
-                        endTime INTEGER,
-                        isRunning INTEGER NOT NULL,
-                        name TEXT,
-                        FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE
-                    )
-                """.trimIndent())
-
-                android.util.Log.d("BackupManager", "Tables created in backup database")
-
-                // Insert projects
-                val projectInsertStmt = backupDb.compileStatement(
-                    "INSERT INTO projects (id, name, createdAt, isActive) VALUES (?, ?, ?, ?)"
-                )
-
-                projects.forEach { project ->
-                    projectInsertStmt.bindLong(1, project.id)
-                    projectInsertStmt.bindString(2, project.name)
-                    projectInsertStmt.bindLong(3, project.createdAt.time)
-                    projectInsertStmt.bindLong(4, if (project.isActive) 1 else 0)
-                    projectInsertStmt.executeInsert()
+                if (!dbFile.exists()) {
+                    android.util.Log.e("BackupManager", "Database file does not exist")
+                    return@withContext false
                 }
-                projectInsertStmt.close()
 
-                // Insert time entries
-                val entryInsertStmt = backupDb.compileStatement(
-                    "INSERT INTO time_entries (id, projectId, startTime, endTime, isRunning, name) VALUES (?, ?, ?, ?, ?, ?)"
-                )
+                android.util.Log.d("BackupManager", "Creating backup by copying database file")
 
-                entries.forEach { entry ->
-                    entryInsertStmt.bindLong(1, entry.id)
-                    entryInsertStmt.bindLong(2, entry.projectId)
-                    entryInsertStmt.bindLong(3, entry.startTime.time)
-                    if (entry.endTime != null) {
-                        entryInsertStmt.bindLong(4, entry.endTime.time)
-                    } else {
-                        entryInsertStmt.bindNull(4)
-                    }
-                    entryInsertStmt.bindLong(5, if (entry.isRunning) 1 else 0)
-                    if (entry.name != null) {
-                        entryInsertStmt.bindString(6, entry.name)
-                    } else {
-                        entryInsertStmt.bindNull(6)
-                    }
-                    entryInsertStmt.executeInsert()
+                // Use SQLite checkpoint to ensure all data is written to the main file
+                // This doesn't close the database, so the app can keep using it
+                val db = AppDatabase.getDatabase(context)
+                try {
+                    // Force a checkpoint to flush WAL to main database file
+                    db.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
+                    android.util.Log.d("BackupManager", "WAL checkpoint completed")
+                } catch (e: Exception) {
+                    android.util.Log.w("BackupManager", "WAL checkpoint failed, continuing anyway: ${e.message}")
                 }
-                entryInsertStmt.close()
 
-                android.util.Log.d("BackupManager", "Data export completed successfully")
+                // Copy the database file (database remains open and usable)
+                dbFile.copyTo(backupFile, overwrite = true)
+
+                android.util.Log.d("BackupManager", "Backup created successfully via file copy")
                 true
 
-            } finally {
-                backupDb?.close()
+            } catch (e: Exception) {
+                android.util.Log.e("BackupManager", "Backup creation failed: ${e.message}", e)
+                false
             }
-
-        } catch (e: Exception) {
-            android.util.Log.e("BackupManager", "Backup export failed: ${e.message}", e)
-            false
         }
     }
 
-    // Restore from backup - simple replacement approach
-    suspend fun restoreFromBackup(backupInfo: BackupInfo): Boolean {
+    // Validate backup before restore
+    suspend fun validateBackup(backupInfo: BackupInfo): BackupValidation {
+        return withContext(Dispatchers.IO) {
+            if (!backupInfo.file.exists()) {
+                return@withContext BackupValidation(
+                    isValid = false,
+                    backupVersion = 0,
+                    currentVersion = 4,
+                    requiresDestructiveMigration = false,
+                    message = "Backup file does not exist"
+                )
+            }
+
+            var database: SQLiteDatabase? = null
+            try {
+                // Open backup database in read-only mode
+                database = SQLiteDatabase.openDatabase(
+                    backupInfo.file.absolutePath,
+                    null,
+                    SQLiteDatabase.OPEN_READONLY
+                )
+
+                // Get database version
+                val backupVersion = database.version
+                val currentVersion = 4 // Current app database version
+
+                android.util.Log.d("BackupManager", "Backup version: $backupVersion, Current version: $currentVersion")
+
+                // Check if backup is compatible
+                when {
+                    backupVersion == 0 -> {
+                        // No version set - check if it has our tables (might be backup created by export)
+                        val tablesCursor = database.rawQuery(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND (name='projects' OR name='time_entries')",
+                            null
+                        )
+                        val hasOurTables = tablesCursor.use { cursor ->
+                            var count = 0
+                            while (cursor.moveToNext()) count++
+                            count >= 2 // Should have both projects and time_entries tables
+                        }
+
+                        if (hasOurTables) {
+                            // Valid backup created by our export function, just missing version number
+                            // Treat as current version since export creates current schema
+                            BackupValidation(
+                                isValid = true,
+                                backupVersion = currentVersion,
+                                currentVersion = currentVersion,
+                                requiresDestructiveMigration = false,
+                                message = "Backup is compatible with current app version"
+                            )
+                        } else {
+                            // Doesn't have our tables - truly corrupted
+                            BackupValidation(
+                                isValid = false,
+                                backupVersion = backupVersion,
+                                currentVersion = currentVersion,
+                                requiresDestructiveMigration = false,
+                                message = "Backup file appears to be corrupted or invalid"
+                            )
+                        }
+                    }
+                    backupVersion < 4 -> {
+                        // Old schema - will be migrated during restore
+                        BackupValidation(
+                            isValid = true,
+                            backupVersion = backupVersion,
+                            currentVersion = currentVersion,
+                            requiresDestructiveMigration = true,
+                            message = "This backup is from an older version of the app (v$backupVersion). " +
+                                    "It will be automatically upgraded to the current format during restore. " +
+                                    "Your projects and time entries will be preserved. " +
+                                    if (backupVersion < 3) {
+                                        "Period history will be auto-generated from your existing time entries."
+                                    } else {
+                                        ""
+                                    }
+                        )
+                    }
+                    backupVersion > currentVersion -> {
+                        // Future version - not compatible
+                        BackupValidation(
+                            isValid = false,
+                            backupVersion = backupVersion,
+                            currentVersion = currentVersion,
+                            requiresDestructiveMigration = false,
+                            message = "This backup is from a newer version of the app (v$backupVersion vs v$currentVersion). " +
+                                    "Please update the app to restore this backup."
+                        )
+                    }
+                    else -> {
+                        // Compatible version (3 or 4)
+                        BackupValidation(
+                            isValid = true,
+                            backupVersion = backupVersion,
+                            currentVersion = currentVersion,
+                            requiresDestructiveMigration = false,
+                            message = "Backup is compatible with current app version"
+                        )
+                    }
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("BackupManager", "Failed to validate backup: ${e.message}", e)
+                BackupValidation(
+                    isValid = false,
+                    backupVersion = 0,
+                    currentVersion = 4,
+                    requiresDestructiveMigration = false,
+                    message = "Failed to read backup file: ${e.message}"
+                )
+            } finally {
+                database?.close()
+            }
+        }
+    }
+
+    // Migrate backup to current version if needed
+    private suspend fun migrateBackupToCurrentVersion(backupFile: File, fromVersion: Int): File? {
+        return withContext(Dispatchers.IO) {
+            if (fromVersion >= 4) {
+                // Already current version, no migration needed
+                return@withContext backupFile
+            }
+
+            try {
+                // Create a temporary copy to migrate
+                val tempFile = File(backupFile.parent, "${backupFile.name}.migrating")
+                backupFile.copyTo(tempFile, overwrite = true)
+
+                android.util.Log.d("BackupManager", "Migrating backup from version $fromVersion to version 4")
+
+                var database: SQLiteDatabase? = null
+                try {
+                    database = SQLiteDatabase.openDatabase(
+                        tempFile.absolutePath,
+                        null,
+                        SQLiteDatabase.OPEN_READWRITE
+                    )
+
+                    var currentVersion = fromVersion
+
+                    // Migration 1→2: Add name column to time_entries
+                    if (currentVersion == 1) {
+                        android.util.Log.d("BackupManager", "Applying migration 1→2")
+                        database.execSQL("ALTER TABLE time_entries ADD COLUMN name TEXT")
+                        currentVersion = 2
+                    }
+
+                    // Migration 2→3: Add period tracking support
+                    if (currentVersion == 2) {
+                        android.util.Log.d("BackupManager", "Applying migration 2→3")
+
+                        // Add periodMode column to projects
+                        database.execSQL("ALTER TABLE projects ADD COLUMN periodMode TEXT NOT NULL DEFAULT 'monthly'")
+
+                        // Create period_closes table
+                        database.execSQL("""
+                            CREATE TABLE period_closes (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                                projectId INTEGER NOT NULL,
+                                closeTime INTEGER NOT NULL,
+                                isAutomatic INTEGER NOT NULL DEFAULT 0,
+                                createdAt INTEGER NOT NULL,
+                                FOREIGN KEY(projectId) REFERENCES projects(id) ON DELETE CASCADE
+                            )
+                        """)
+
+                        // Create indices
+                        database.execSQL("CREATE INDEX index_period_closes_projectId ON period_closes(projectId)")
+                        database.execSQL("CREATE INDEX index_period_closes_closeTime ON period_closes(closeTime)")
+
+                        // Initialize monthly closes for existing projects with historical data
+                        database.execSQL("""
+                            INSERT INTO period_closes (projectId, closeTime, isAutomatic, createdAt)
+                            SELECT DISTINCT
+                                projectId,
+                                strftime('%s', date(startTime / 1000, 'unixepoch', 'start of month', '+1 month')) * 1000,
+                                1,
+                                strftime('%s', 'now') * 1000
+                            FROM time_entries
+                            WHERE startTime < strftime('%s', date('now', 'start of month')) * 1000
+                            GROUP BY projectId, strftime('%Y-%m', startTime / 1000, 'unixepoch')
+                            ORDER BY projectId, closeTime
+                        """)
+
+                        currentVersion = 3
+                    }
+
+                    // Migration 3→4: Add index on time_entries.projectId
+                    if (currentVersion == 3) {
+                        android.util.Log.d("BackupManager", "Applying migration 3→4")
+                        database.execSQL("CREATE INDEX IF NOT EXISTS index_time_entries_projectId ON time_entries(projectId)")
+                        currentVersion = 4
+                    }
+
+                    // Update database version
+                    database.version = 4
+                    android.util.Log.d("BackupManager", "Migration completed successfully to version 4")
+
+                    return@withContext tempFile
+
+                } finally {
+                    database?.close()
+                }
+
+            } catch (e: Exception) {
+                android.util.Log.e("BackupManager", "Backup migration failed: ${e.message}", e)
+                null
+            }
+        }
+    }
+
+    // Auto-backup to external folder settings
+    fun isAutoExportEnabled(): Boolean {
+        return prefs.getBoolean("auto_export_enabled", false)
+    }
+
+    fun setAutoExportEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_export_enabled", enabled).apply()
+    }
+
+    fun getAutoExportFolderUri(): String? {
+        return prefs.getString("auto_export_folder_uri", null)
+    }
+
+    fun setAutoExportFolderUri(uri: String?) {
+        prefs.edit().putString("auto_export_folder_uri", uri).apply()
+        if (uri != null) {
+            // Persist permissions for the folder
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    android.net.Uri.parse(uri),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("BackupManager", "Failed to persist folder permissions: ${e.message}")
+            }
+        }
+    }
+
+    // Automatically export backup to external folder if enabled
+    private suspend fun autoExportBackupIfEnabled(backupInfo: BackupInfo): Boolean {
+        if (!isAutoExportEnabled()) {
+            return true // Auto-export not enabled, consider it success
+        }
+
+        val folderUriString = getAutoExportFolderUri()
+        if (folderUriString == null) {
+            android.util.Log.w("BackupManager", "Auto-export enabled but no folder selected")
+            return false
+        }
+
         return withContext(Dispatchers.IO) {
             try {
-                android.util.Log.d("BackupManager", "Starting restore from: ${backupInfo.file.name}")
+                val folderUri = android.net.Uri.parse(folderUriString)
+                val documentUri = DocumentFile.fromTreeUri(context, folderUri)
 
-                val dbFile = context.getDatabasePath("howmanyhours_database")
-                val walFile = File(dbFile.absolutePath + "-wal")
-                val shmFile = File(dbFile.absolutePath + "-shm")
+                if (documentUri == null || !documentUri.canWrite()) {
+                    android.util.Log.e("BackupManager", "Cannot write to auto-export folder")
+                    return@withContext false
+                }
+
+                // Create file in the selected folder
+                val fileName = backupInfo.file.name
+                val mimeType = "application/octet-stream"
+                val newFile = documentUri.createFile(mimeType, fileName)
+
+                if (newFile == null) {
+                    android.util.Log.e("BackupManager", "Failed to create file in auto-export folder")
+                    return@withContext false
+                }
+
+                // Copy backup to the external folder
+                context.contentResolver.openOutputStream(newFile.uri)?.use { outputStream ->
+                    backupInfo.file.inputStream().use { inputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+
+                android.util.Log.d("BackupManager", "Auto-exported backup to: ${newFile.uri}")
+                true
+            } catch (e: Exception) {
+                android.util.Log.e("BackupManager", "Auto-export failed: ${e.message}", e)
+                false
+            }
+        }
+    }
+
+    // Export backup to external file (user-chosen location)
+    suspend fun exportBackupToUri(backupInfo: BackupInfo, destinationUri: android.net.Uri): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                context.contentResolver.openOutputStream(destinationUri)?.use { outputStream ->
+                    backupInfo.file.inputStream().use { inputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+                android.util.Log.d("BackupManager", "Backup exported to external location")
+                true
+            } catch (e: Exception) {
+                android.util.Log.e("BackupManager", "Export failed: ${e.message}", e)
+                false
+            }
+        }
+    }
+
+    // Import backup from external file
+    suspend fun importBackupFromUri(sourceUri: android.net.Uri, backupName: String): BackupInfo? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val importedFile = File(backupDir, backupName)
+
+                context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
+                    importedFile.outputStream().use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+
+                android.util.Log.d("BackupManager", "Backup imported from external location")
+
+                // Get info about the imported backup
+                val timestamp = Date()
+                getBackupInfo(importedFile, BackupType.MANUAL, timestamp)
+
+            } catch (e: Exception) {
+                android.util.Log.e("BackupManager", "Import failed: ${e.message}", e)
+                null
+            }
+        }
+    }
+
+    // Restore from backup - with migration support and rollback on failure
+    suspend fun restoreFromBackup(backupInfo: BackupInfo): RestoreResult {
+        return withContext(Dispatchers.IO) {
+            val dbFile = context.getDatabasePath("howmanyhours_database")
+            val walFile = File(dbFile.absolutePath + "-wal")
+            val shmFile = File(dbFile.absolutePath + "-shm")
+            val tempBackupOfCurrent = File(context.cacheDir, "pre_restore_backup.db")
+            val tempWalBackup = File(context.cacheDir, "pre_restore_backup.db-wal")
+            val tempShmBackup = File(context.cacheDir, "pre_restore_backup.db-shm")
+
+            try {
+                android.util.Log.d("BackupManager", "Starting safe restore from: ${backupInfo.file.name}")
+
+                // Step 0: Validate and potentially migrate the backup
+                val validation = validateBackup(backupInfo)
+
+                if (!validation.isValid) {
+                    return@withContext RestoreResult.Failed(validation.message)
+                }
+
+                val fileToRestore = if (validation.requiresDestructiveMigration) {
+                    android.util.Log.d("BackupManager", "Backup requires migration from version ${validation.backupVersion}")
+                    migrateBackupToCurrentVersion(backupInfo.file, validation.backupVersion)
+                        ?: return@withContext RestoreResult.Failed("Failed to migrate backup")
+                } else {
+                    backupInfo.file
+                }
 
                 // Step 1: Close Room database completely
                 try {
-                    val appDatabase = AppDatabase.getDatabase(context)
-                    appDatabase.close()
+                    AppDatabase.getDatabase(context).close()
                     android.util.Log.d("BackupManager", "Room database closed for restore")
                 } catch (e: Exception) {
                     android.util.Log.w("BackupManager", "Failed to close Room database: ${e.message}")
                 }
-
-                // Give some time for cleanup
+                AppDatabase.clearInstance()
                 Thread.sleep(500)
 
-                // Step 2: Delete existing database files
-                if (dbFile.exists()) {
-                    val deleted = dbFile.delete()
-                    android.util.Log.d("BackupManager", "Main DB deleted: $deleted")
-                }
-                if (walFile.exists()) {
-                    val deleted = walFile.delete()
-                    android.util.Log.d("BackupManager", "WAL file deleted: $deleted")
-                }
-                if (shmFile.exists()) {
-                    val deleted = shmFile.delete()
-                    android.util.Log.d("BackupManager", "SHM file deleted: $deleted")
+                // Step 2: CRITICAL - Backup current database for rollback
+                try {
+                    if (dbFile.exists()) {
+                        dbFile.copyTo(tempBackupOfCurrent, overwrite = true)
+                        android.util.Log.d("BackupManager", "Created rollback point")
+                    }
+                    if (walFile.exists()) {
+                        walFile.copyTo(tempWalBackup, overwrite = true)
+                    }
+                    if (shmFile.exists()) {
+                        shmFile.copyTo(tempShmBackup, overwrite = true)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("BackupManager", "Failed to create rollback point: ${e.message}")
+                    return@withContext RestoreResult.Failed("Cannot create safety backup: ${e.message}")
                 }
 
-                // Step 3: Copy backup to main database location
-                backupInfo.file.copyTo(dbFile, overwrite = true)
+                // Step 3: Delete existing database files
+                dbFile.delete()
+                walFile.delete()
+                shmFile.delete()
+                android.util.Log.d("BackupManager", "Existing database deleted")
+
+                // Step 4: Copy backup to main database location
+                fileToRestore.copyTo(dbFile, overwrite = true)
                 android.util.Log.d("BackupManager", "Backup copied to main database location")
 
-                // Step 4: Clear Room instance to force recreation
-                AppDatabase.clearInstance()
-                android.util.Log.d("BackupManager", "Room instance cleared")
-
-                // Step 5: Test that we can reopen the database
-                try {
-                    AppDatabase.getDatabase(context)
-                    android.util.Log.d("BackupManager", "Database reopened successfully after restore")
-                } catch (e: Exception) {
-                    android.util.Log.e("BackupManager", "Failed to reopen database after restore: ${e.message}")
-                    return@withContext false
+                // Step 5: Clean up temporary migration file
+                if (fileToRestore != backupInfo.file) {
+                    fileToRestore.delete()
                 }
 
-                android.util.Log.d("BackupManager", "Restore completed successfully")
-                true
+                // Step 6: Try to open with Room (migrations will run here)
+                try {
+                    val db = AppDatabase.getDatabase(context)
+
+                    // Step 7: Validate by attempting a query using the NEW database instance
+                    // Don't use repository - it has DAOs from the old, deleted database!
+                    db.projectDao().getAllProjects().first()
+
+                    android.util.Log.d("BackupManager", "Restore successful, deleting rollback point")
+                    tempBackupOfCurrent.delete()
+                    tempWalBackup.delete()
+                    tempShmBackup.delete()
+
+                    return@withContext RestoreResult.Success
+
+                } catch (e: Exception) {
+                    // Step 8: ROLLBACK - Restore failed
+                    android.util.Log.e("BackupManager", "Restore failed, rolling back: ${e.message}", e)
+
+                    AppDatabase.clearInstance()
+                    dbFile.delete()
+                    walFile.delete()
+                    shmFile.delete()
+
+                    if (tempBackupOfCurrent.exists()) {
+                        tempBackupOfCurrent.copyTo(dbFile, overwrite = true)
+                    }
+                    if (tempWalBackup.exists()) {
+                        tempWalBackup.copyTo(walFile, overwrite = true)
+                    }
+                    if (tempShmBackup.exists()) {
+                        tempShmBackup.copyTo(shmFile, overwrite = true)
+                    }
+
+                    // Reopen original database
+                    AppDatabase.getDatabase(context)
+
+                    return@withContext RestoreResult.Failed("Restore failed: ${e.message}. Rolled back to previous state.")
+                }
 
             } catch (e: Exception) {
-                android.util.Log.e("BackupManager", "Restore failed: ${e.message}", e)
-                false
+                android.util.Log.e("BackupManager", "Restore process failed: ${e.message}", e)
+
+                // Emergency rollback if anything went wrong
+                if (tempBackupOfCurrent.exists()) {
+                    try {
+                        AppDatabase.clearInstance()
+                        dbFile.delete()
+                        walFile.delete()
+                        shmFile.delete()
+                        tempBackupOfCurrent.copyTo(dbFile, overwrite = true)
+                        if (tempWalBackup.exists()) tempWalBackup.copyTo(walFile, overwrite = true)
+                        if (tempShmBackup.exists()) tempShmBackup.copyTo(shmFile, overwrite = true)
+                        AppDatabase.getDatabase(context)
+                    } catch (rollbackError: Exception) {
+                        android.util.Log.e("BackupManager", "Emergency rollback failed: ${rollbackError.message}")
+                    }
+                }
+
+                return@withContext RestoreResult.Failed(e.message ?: "Unknown error")
+
+            } finally {
+                // Clean up rollback files
+                tempBackupOfCurrent.delete()
+                tempWalBackup.delete()
+                tempShmBackup.delete()
             }
         }
     }

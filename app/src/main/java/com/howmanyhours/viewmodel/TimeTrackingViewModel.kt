@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.howmanyhours.data.entities.Project
 import com.howmanyhours.data.entities.TimeEntry
+import com.howmanyhours.repository.Period
 import com.howmanyhours.repository.TimeTrackingRepository
 import com.howmanyhours.services.TimeTrackingNotificationService
 import com.howmanyhours.backup.BackupManager
@@ -15,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import java.util.*
+import java.util.TimeZone
 
 class TimeTrackingViewModel(
     private val repository: TimeTrackingRepository,
@@ -50,15 +52,22 @@ class TimeTrackingViewModel(
 
         // Check and create automatic backup if needed
         checkAutoBackup()
+
+        // Check monthly auto-close for all projects in monthly mode
+        viewModelScope.launch {
+            projects.first().filter { it.periodMode == "monthly" }.forEach { project ->
+                repository.checkMonthlyAutoClose(project.id)
+            }
+        }
     }
 
     private fun loadActiveProject() {
         viewModelScope.launch {
             val activeProject = repository.getActiveProject()
             _uiState.update { it.copy(activeProject = activeProject) }
-            
+
             activeProject?.let { project ->
-                loadMonthlyHours(project.id)
+                loadCurrentPeriod(project.id)
             }
         }
     }
@@ -145,7 +154,7 @@ class TimeTrackingViewModel(
     
     private fun refreshAllProjectsMonthlyHours() {
         viewModelScope.launch {
-            val calendar = Calendar.getInstance()
+            val calendar = Calendar.getInstance(TimeZone.getDefault())
             val currentYear = calendar.get(Calendar.YEAR)
             val currentMonth = calendar.get(Calendar.MONTH)
             
@@ -214,8 +223,8 @@ class TimeTrackingViewModel(
     private fun loadMonthlyHours(projectId: Long) {
         // Cancel any existing monthly hours job to prevent interference
         monthlyHoursJob?.cancel()
-        
-        val calendar = Calendar.getInstance()
+
+        val calendar = Calendar.getInstance(TimeZone.getDefault())
         val currentYear = calendar.get(Calendar.YEAR)
         val currentMonth = calendar.get(Calendar.MONTH)
 
@@ -233,7 +242,7 @@ class TimeTrackingViewModel(
 
     private fun loadAllProjectsMonthlyHours() {
         viewModelScope.launch {
-            val calendar = Calendar.getInstance()
+            val calendar = Calendar.getInstance(TimeZone.getDefault())
             val currentYear = calendar.get(Calendar.YEAR)
             val currentMonth = calendar.get(Calendar.MONTH)
 
@@ -270,7 +279,7 @@ class TimeTrackingViewModel(
         viewModelScope.launch {
             repository.deleteProject(project)
             if (_uiState.value.activeProject?.id == project.id) {
-                _uiState.update { it.copy(activeProject = null, runningTimeEntry = null) }
+                _uiState.update { it.copy(activeProject = null, runningTimeEntry = null, monthlyHours = 0) }
             }
         }
     }
@@ -282,14 +291,14 @@ class TimeTrackingViewModel(
                 _uiState.update { it.copy(showSwitchConfirmation = true, pendingProject = project) }
             } else {
                 val timeEntry = repository.startTracking(project.id)
-                _uiState.update { 
+                _uiState.update {
                     it.copy(
                         activeProject = project,
                         runningTimeEntry = timeEntry,
                         isTracking = true
                     )
                 }
-                loadMonthlyHours(project.id)
+                loadCurrentPeriod(project.id)
                 startTimer()
                 
                 // Start notification service
@@ -318,11 +327,11 @@ class TimeTrackingViewModel(
             Log.d(TAG, "Stopping notification service")
             TimeTrackingNotificationService.stopService(context)
             
-            // Update monthly hours after stopping - with a small delay to ensure DB is updated
+            // Update period hours after stopping - with a small delay to ensure DB is updated
             val activeProject = _uiState.value.activeProject
             if (activeProject != null) {
                 delay(100) // Small delay to ensure database write completes
-                loadMonthlyHours(activeProject.id)
+                loadCurrentPeriod(activeProject.id)
                 refreshAllProjectsMonthlyHours() // Refresh all projects' monthly hours
             }
         }
@@ -351,14 +360,14 @@ class TimeTrackingViewModel(
         viewModelScope.launch {
             // Cancel any existing monthly hours job immediately
             monthlyHoursJob?.cancel()
-            
+
             repository.activateProject(project.id)
             _uiState.update { it.copy(activeProject = project, monthlyHours = 0) } // Reset to 0 immediately
-            
+
             // Small delay to ensure state is properly updated before loading new data
             delay(50)
-            loadMonthlyHours(project.id) // Then load correct hours
-            
+            loadCurrentPeriod(project.id) // Load current period hours
+
             // Force refresh to ensure current tracking time is up to date
             refreshCurrentState()
         }
@@ -426,52 +435,164 @@ class TimeTrackingViewModel(
         }
     }
 
-    suspend fun exportToCsv(): String {
+    suspend fun exportToCsvToStream(outputStream: java.io.OutputStream) {
         val projects = repository.getAllProjects().first()
-        val allEntries = repository.getAllTimeEntries()
-        
-        val csv = StringBuilder()
-        csv.appendLine("Project,Entry Name,Start Time,End Time,Duration (minutes)")
-        
-        for (entry in allEntries) {
-            val project = projects.find { it.id == entry.projectId }
-            val entryName = entry.name?.let { "\"$it\"" } ?: ""  // Quote names with commas, empty if null
-            csv.appendLine(
-                "${project?.name ?: "Unknown"},$entryName,${entry.startTime},${entry.endTime ?: "Running"},${entry.getDurationInMinutes()}"
-            )
+        val writer = outputStream.bufferedWriter()
+
+        try {
+            // Write CSV header
+            writer.write("Project,Entry Name,Start Time,End Time,Duration (minutes)\n")
+
+            // Process entries in batches of 1000 to avoid loading everything into memory
+            val batchSize = 1000
+            var offset = 0
+            var batch: List<com.howmanyhours.data.entities.TimeEntry>
+
+            do {
+                batch = repository.getTimeEntriesBatch(batchSize, offset)
+
+                for (entry in batch) {
+                    val project = projects.find { it.id == entry.projectId }
+                    // Properly escape quotes in entry names for CSV
+                    val entryName = entry.name?.let {
+                        "\"${it.replace("\"", "\"\"")}\""  // Escape quotes by doubling them
+                    } ?: ""
+
+                    writer.write(
+                        "${project?.name ?: "Unknown"},$entryName,${entry.startTime},${entry.endTime ?: "Running"},${entry.getDurationInMinutes()}\n"
+                    )
+                }
+
+                offset += batchSize
+            } while (batch.size == batchSize)  // Continue while we got a full batch
+
+            writer.flush()
+        } finally {
+            writer.close()
         }
-        
-        return csv.toString()
     }
 
-    fun setMonthlyHours(projectId: Long, newHoursInMinutes: Long) {
+    fun addTimeEntry(projectId: Long, hoursInMinutes: Long, name: String? = null) {
         viewModelScope.launch {
-            val calendar = Calendar.getInstance()
-            val currentYear = calendar.get(Calendar.YEAR)
-            val currentMonth = calendar.get(Calendar.MONTH)
-            
-            repository.setMonthlyHours(projectId, currentYear, currentMonth, newHoursInMinutes)
-            
-            // Refresh the monthly hours display
+            repository.addTimeEntry(projectId, hoursInMinutes, name)
+
+            // Refresh the period hours display
             if (_uiState.value.activeProject?.id == projectId) {
-                loadMonthlyHours(projectId)
+                loadCurrentPeriod(projectId)
             }
             loadAllProjectsMonthlyHours() // Refresh all projects' monthly hours
         }
     }
 
-    fun addTimeEntry(projectId: Long, hoursInMinutes: Long) {
+    // Period management methods
+
+    fun loadCurrentPeriod(projectId: Long) {
         viewModelScope.launch {
-            repository.addTimeEntry(projectId, hoursInMinutes)
-            
-            // Refresh the monthly hours display
-            if (_uiState.value.activeProject?.id == projectId) {
-                loadMonthlyHours(projectId)
+            try {
+                val period = repository.getCurrentPeriod(projectId)
+                _uiState.update { it.copy(currentPeriod = period) }
+
+                // Load hours for this specific period (not calendar month)
+                loadCurrentPeriodHours(projectId, period)
+
+                // Also check for monthly auto-close
+                repository.checkMonthlyAutoClose(projectId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading current period", e)
             }
-            loadAllProjectsMonthlyHours() // Refresh all projects' monthly hours
         }
     }
-    
+
+    private fun loadCurrentPeriodHours(projectId: Long, period: Period) {
+        viewModelScope.launch {
+            try {
+                repository.getEntriesForPeriod(period).collect { entries ->
+                    val totalMinutes = entries.sumOf { it.getDurationInMinutes() }
+                    _uiState.update { it.copy(monthlyHours = totalMinutes) }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading period hours", e)
+            }
+        }
+    }
+
+    fun loadAllPeriods(projectId: Long) {
+        viewModelScope.launch {
+            try {
+                val periods = repository.getAllPeriods(projectId)
+                _uiState.update { it.copy(allPeriods = periods) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading all periods", e)
+            }
+        }
+    }
+
+    fun selectPeriod(period: Period) {
+        viewModelScope.launch {
+            repository.getEntriesForPeriod(period).collect { entries ->
+                _uiState.update {
+                    it.copy(
+                        selectedPeriod = period,
+                        periodEntries = entries
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeCurrentPeriod(projectId: Long, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                // Check if there's active tracking
+                val runningEntry = _uiState.value.runningTimeEntry
+                if (runningEntry != null && runningEntry.projectId == projectId) {
+                    // Stop tracking before closing period
+                    stopTracking()
+                }
+
+                repository.closePeriod(projectId)
+                loadCurrentPeriod(projectId)
+                loadAllPeriods(projectId)
+                onSuccess()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing period", e)
+                onError(e.message ?: "Failed to close period")
+            }
+        }
+    }
+
+    fun changePeriodMode(projectId: Long, newMode: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.changePeriodMode(projectId, newMode)
+                loadCurrentPeriod(projectId)
+                loadAllPeriods(projectId)
+                onSuccess()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error changing period mode", e)
+                onError(e.message ?: "Failed to change period mode")
+            }
+        }
+    }
+
+    fun getProjectById(projectId: Long): Flow<Project?> {
+        return flow {
+            emit(repository.getProjectById(projectId))
+        }
+    }
+
+    fun updateRunningEntryName(newName: String) {
+        viewModelScope.launch {
+            val runningEntry = _uiState.value.runningTimeEntry
+            if (runningEntry != null) {
+                repository.updateEntryName(runningEntry.id, newName)
+                // Reload the running entry to update UI
+                val updatedEntry = repository.getRunningTimeEntry()
+                _uiState.update { it.copy(runningTimeEntry = updatedEntry) }
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         stopTimer()
@@ -499,5 +620,9 @@ data class TimeTrackingUiState(
     val monthlyHours: Long = 0,
     val projectMonthlyHours: Map<Long, Long> = emptyMap(),
     val showSwitchConfirmation: Boolean = false,
-    val pendingProject: Project? = null
+    val pendingProject: Project? = null,
+    val currentPeriod: Period? = null,
+    val allPeriods: List<Period> = emptyList(),
+    val selectedPeriod: Period? = null,
+    val periodEntries: List<TimeEntry> = emptyList()
 )
