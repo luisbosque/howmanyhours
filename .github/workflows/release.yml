@@ -1,0 +1,112 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Decode keystore
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_FILE }}
+      run: |
+        if [ -n "$KEYSTORE_BASE64" ]; then
+          echo "$KEYSTORE_BASE64" | base64 -d > howmanyhours-release.jks
+        else
+          echo "Warning: KEYSTORE_FILE secret not set, signed build will fail"
+        fi
+
+    - name: Create keystore.properties
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: |
+        if [ -n "$KEYSTORE_PASSWORD" ]; then
+          cat > keystore.properties << EOF
+        storeFile=howmanyhours-release.jks
+        storePassword=$KEYSTORE_PASSWORD
+        keyAlias=$KEY_ALIAS
+        keyPassword=$KEY_PASSWORD
+        EOF
+        else
+          echo "Warning: Keystore secrets not set"
+        fi
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Run tests
+      run: ./gradlew test
+
+    - name: Build release APK
+      run: ./gradlew assembleRelease
+
+    - name: Build release AAB
+      run: ./gradlew bundleRelease
+
+    - name: Get version name
+      id: version
+      run: |
+        VERSION=$(grep "versionName = " app/build.gradle.kts | sed 's/.*versionName = "//' | sed 's/".*//')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Rename APK
+      run: |
+        cp app/build/outputs/apk/release/app-release.apk \
+           howmanyhours-v${{ steps.version.outputs.version }}.apk
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          howmanyhours-v${{ steps.version.outputs.version }}.apk
+          app/build/outputs/bundle/release/app-release.aab
+        body: |
+          ## What's Changed
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+
+          ## Installation
+
+          Download the APK and install on your Android device (Android 9.0+).
+
+          ### From Website
+          Visit https://luisico.net/apps/howmanyhours
+
+          ### Direct Install
+          ```bash
+          adb install howmanyhours-v${{ steps.version.outputs.version }}.apk
+          ```
+
+          **SHA-256 Checksums:**
+          ```
+          $(sha256sum howmanyhours-v${{ steps.version.outputs.version }}.apk | awk '{print $1}')
+          ```
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload to artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-artifacts
+        path: |
+          howmanyhours-v${{ steps.version.outputs.version }}.apk
+          app/build/outputs/bundle/release/app-release.aab
+        retention-days: 90
