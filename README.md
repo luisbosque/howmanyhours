@@ -308,4 +308,4 @@ Currently, the app stores data locally. For backup options:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-Copyright (c) 2026 Luis Puerto (luisico.net)
+Copyright (c) 2026 Luis Bosque

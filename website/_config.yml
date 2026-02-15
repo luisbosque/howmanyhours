@@ -1,0 +1,9 @@
+title: How Many Hours
+description: A privacy-first, offline time tracker for Android
+url: "https://luisbosque.github.io"
+baseurl: "/howmanyhours"
+
+markdown: kramdown
+exclude:
+  - Gemfile
+  - Gemfile.lock

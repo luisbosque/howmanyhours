@@ -1,0 +1,425 @@
+/* ------------------------------------------------
+   How Many Hours – Arcade / Vintage-Tech Stylesheet
+   ------------------------------------------------ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap');
+
+:root {
+  --purple-deep: #1A0A2E;
+  --purple-dark: #2D1B69;
+  --purple-mid: #6750A4;
+  --purple-bright: #B388FF;
+  --purple-glow: #7C4DFF;
+  --green: #00E676;
+  --cyan: #00E5FF;
+  --white: #FFFFFF;
+  --white-soft: rgba(255, 255, 255, 0.85);
+  --white-dim: rgba(255, 255, 255, 0.5);
+  --mono: 'Space Mono', 'Courier New', monospace;
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--sans);
+  color: var(--white);
+  background: var(--purple-deep);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* ---- Subtle grid background ---- */
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image:
+    linear-gradient(rgba(103, 80, 164, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(103, 80, 164, 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---- Hero ---- */
+
+.hero {
+  position: relative;
+  text-align: center;
+  padding: 7rem 1.5rem 5rem;
+  background: linear-gradient(170deg, var(--purple-dark) 0%, var(--purple-deep) 60%, #0D0620 100%);
+  overflow: hidden;
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--purple-bright), transparent);
+}
+
+.hero-scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.015) 2px,
+    rgba(255, 255, 255, 0.015) 4px
+  );
+  pointer-events: none;
+}
+
+.hero-icon {
+  margin-bottom: 1.5rem;
+}
+
+.hero-icon svg {
+  filter: drop-shadow(0 0 30px rgba(124, 77, 255, 0.5));
+  border-radius: 20%;
+}
+
+.hero h1 {
+  font-family: var(--mono);
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.75rem;
+  color: var(--white);
+}
+
+.tagline {
+  color: var(--white-soft);
+  margin-bottom: 2.5rem;
+  font-family: var(--mono);
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+/* ---- Buttons ---- */
+
+.cta-group {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 2rem;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn-primary {
+  background: var(--white);
+  color: var(--purple-dark);
+  box-shadow: 0 0 20px rgba(124, 77, 255, 0.3);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 30px rgba(124, 77, 255, 0.5), 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.btn-icon {
+  font-size: 0.75rem;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--white-dim);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: default;
+}
+
+.btn-ghost:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* ---- Feature Sections ---- */
+
+.feature-section {
+  position: relative;
+  padding: 5rem 1.5rem;
+  background: var(--purple-deep);
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.feature-section.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.feature-section.alt {
+  background: var(--purple-dark);
+}
+
+.feature-section::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  width: 80%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(179, 136, 255, 0.3), transparent);
+}
+
+.feature-content {
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.feature-label {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--purple-bright);
+  letter-spacing: 0.1em;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.feature-content h2 {
+  font-family: var(--mono);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--white);
+  margin-bottom: 1rem;
+}
+
+.feature-content p {
+  font-size: 1.05rem;
+  color: var(--white-soft);
+  line-height: 1.8;
+}
+
+/* ---- Privacy Section ---- */
+
+.privacy-section {
+  position: relative;
+  padding: 6rem 1.5rem;
+  text-align: center;
+  background: linear-gradient(180deg, var(--purple-dark), var(--purple-deep));
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.privacy-section.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.privacy-icon-large {
+  margin-bottom: 1.25rem;
+}
+
+.privacy-icon-large svg {
+  filter: drop-shadow(0 0 12px rgba(179, 136, 255, 0.4));
+}
+
+.privacy-section h2 {
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 1.25rem;
+}
+
+.privacy-lead {
+  max-width: 640px;
+  margin: 0 auto 2.5rem;
+  font-size: 1rem;
+  color: var(--white-soft);
+  line-height: 1.8;
+}
+
+.privacy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.privacy-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(179, 136, 255, 0.15);
+  border-radius: 12px;
+  padding: 1.5rem 1rem;
+}
+
+.privacy-card-icon {
+  margin-bottom: 0.75rem;
+  line-height: 1;
+}
+
+.privacy-card-icon svg {
+  display: inline-block;
+}
+
+.privacy-card h3 {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--white);
+  margin-bottom: 0.4rem;
+}
+
+.privacy-card p {
+  font-size: 0.8rem;
+  color: var(--white-dim);
+}
+
+/* ---- Download Section ---- */
+
+.download-section {
+  padding: 6rem 1.5rem;
+  text-align: center;
+  background: var(--purple-deep);
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.download-section.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.download-section h2 {
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.download-sub {
+  color: var(--white-dim);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  margin-bottom: 2rem;
+}
+
+.download-section .btn-primary {
+  background: var(--purple-glow);
+  color: var(--white);
+  box-shadow: 0 0 25px rgba(124, 77, 255, 0.4);
+}
+
+.download-section .btn-primary:hover {
+  box-shadow: 0 0 40px rgba(124, 77, 255, 0.6), 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.install-hint {
+  margin-top: 2rem;
+  font-size: 0.8rem;
+  color: var(--white-dim);
+  font-family: var(--mono);
+}
+
+/* ---- Footer ---- */
+
+.footer {
+  padding: 2rem 1.5rem;
+  text-align: center;
+  font-size: 0.8rem;
+  font-family: var(--mono);
+  color: var(--white-dim);
+  border-top: 1px solid rgba(179, 136, 255, 0.15);
+  background: var(--purple-deep);
+}
+
+.footer a {
+  color: var(--purple-bright);
+  text-decoration: none;
+}
+
+.footer a:hover {
+  text-decoration: underline;
+}
+
+/* ---- Responsive ---- */
+
+@media (max-width: 768px) {
+  .hero {
+    padding: 5rem 1rem 3.5rem;
+  }
+
+  .hero h1 {
+    font-size: 2rem;
+  }
+
+  .tagline {
+    font-size: 0.9rem;
+  }
+
+  .btn {
+    padding: 0.75rem 1.5rem;
+    font-size: 0.8rem;
+  }
+
+  .feature-section {
+    padding: 3.5rem 1rem;
+  }
+
+  .feature-content h2 {
+    font-size: 1.4rem;
+  }
+
+  .privacy-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .privacy-grid {
+    grid-template-columns: 1fr;
+  }
+}

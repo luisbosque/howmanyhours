@@ -20,32 +20,35 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    - name: Decode keystore
-      env:
-        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_FILE }}
+    - name: Check signing secrets
+      id: signing
       run: |
-        if [ -n "$KEYSTORE_BASE64" ]; then
-          echo "$KEYSTORE_BASE64" | base64 -d > howmanyhours-release.jks
+        if [ -n "${{ secrets.KEYSTORE_FILE }}" ] && [ -n "${{ secrets.KEYSTORE_PASSWORD }}" ]; then
+          echo "available=true" >> $GITHUB_OUTPUT
         else
-          echo "Warning: KEYSTORE_FILE secret not set, signed build will fail"
+          echo "available=false" >> $GITHUB_OUTPUT
+          echo "::notice::Signing secrets not configured. Building unsigned APK."
         fi
 
+    - name: Decode keystore
+      if: steps.signing.outputs.available == 'true'
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_FILE }}
+      run: echo "$KEYSTORE_BASE64" | base64 -d > howmanyhours-release.jks
+
     - name: Create keystore.properties
+      if: steps.signing.outputs.available == 'true'
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       run: |
-        if [ -n "$KEYSTORE_PASSWORD" ]; then
-          cat > keystore.properties << EOF
-        storeFile=howmanyhours-release.jks
-        storePassword=$KEYSTORE_PASSWORD
-        keyAlias=$KEY_ALIAS
-        keyPassword=$KEY_PASSWORD
-        EOF
-        else
-          echo "Warning: Keystore secrets not set"
-        fi
+        cat > keystore.properties << PROPS
+storeFile=howmanyhours-release.jks
+storePassword=$KEYSTORE_PASSWORD
+keyAlias=$KEY_ALIAS
+keyPassword=$KEY_PASSWORD
+PROPS
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
@@ -57,6 +60,7 @@ jobs:
       run: ./gradlew assembleRelease
 
     - name: Build release AAB
+      if: steps.signing.outputs.available == 'true'
       run: ./gradlew bundleRelease
 
     - name: Get version name
@@ -65,17 +69,43 @@ jobs:
         VERSION=$(grep "versionName = " app/build.gradle.kts | sed 's/.*versionName = "//' | sed 's/".*//')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-    - name: Rename APK
+    - name: Prepare APK
+      id: apk
       run: |
-        cp app/build/outputs/apk/release/app-release.apk \
-           howmanyhours-v${{ steps.version.outputs.version }}.apk
+        SIGNED="app/build/outputs/apk/release/app-release.apk"
+        UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
+        VERSION="${{ steps.version.outputs.version }}"
+        TARGET="howmanyhours-v${VERSION}.apk"
+
+        if [ -f "$SIGNED" ]; then
+          cp "$SIGNED" "$TARGET"
+          echo "signed=true" >> $GITHUB_OUTPUT
+        elif [ -f "$UNSIGNED" ]; then
+          cp "$UNSIGNED" "$TARGET"
+          echo "signed=false" >> $GITHUB_OUTPUT
+        else
+          echo "::error::No APK found"
+          exit 1
+        fi
+
+    - name: Collect release assets
+      id: assets
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        FILES="howmanyhours-v${VERSION}.apk"
+        AAB="app/build/outputs/bundle/release/app-release.aab"
+        if [ -f "$AAB" ]; then
+          FILES="${FILES}\n${AAB}"
+        fi
+        # Write multiline value
+        echo "files<<EOF" >> $GITHUB_OUTPUT
+        echo -e "$FILES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          howmanyhours-v${{ steps.version.outputs.version }}.apk
-          app/build/outputs/bundle/release/app-release.aab
+        files: ${{ steps.assets.outputs.files }}
         body: |
           ## What's Changed
 
@@ -86,14 +116,14 @@ jobs:
           Download the APK and install on your Android device (Android 9.0+).
 
           ### From Website
-          Visit https://luisico.net/apps/howmanyhours
+          Visit https://luisbosque.github.io/howmanyhours
 
           ### Direct Install
           ```bash
           adb install howmanyhours-v${{ steps.version.outputs.version }}.apk
           ```
 
-          **SHA-256 Checksums:**
+          **SHA-256 Checksum:**
           ```
           $(sha256sum howmanyhours-v${{ steps.version.outputs.version }}.apk | awk '{print $1}')
           ```

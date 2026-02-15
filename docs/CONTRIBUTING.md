@@ -212,7 +212,7 @@ All new features and bug fixes must include tests:
    - Migrations
    - Complex integrations
 
-3. **Critical Areas** (see SECURITY_TODO.md):
+3. **Critical Areas**:
    - Data reliability tests (mandatory)
    - Period calculation tests (mandatory)
    - Backup/restore tests
