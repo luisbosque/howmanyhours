@@ -100,6 +100,21 @@ jobs:
         echo -e "$FILES" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
+    - name: Extract changelog
+      id: changelog
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        # Try to find the section for this version, fall back to Unreleased
+        SECTION=$(awk -v ver="## [${VERSION}]" -v unrel="## [Unreleased]" '
+          $0 ~ ver { found=1; next }
+          !found && $0 ~ unrel { found=1; next }
+          found && /^## \[/ { exit }
+          found && NF { print }
+        ' docs/CHANGELOG.md)
+        echo "notes<<EOF" >> $GITHUB_OUTPUT
+        echo "$SECTION" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
@@ -107,16 +122,13 @@ jobs:
         body: |
           ## What's Changed
 
-          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          ${{ steps.changelog.outputs.notes }}
 
           ## Installation
 
           Download the APK and install on your Android device (Android 9.0+).
+          Visit https://luisbosque.github.io/howmanyhours for more info.
 
-          ### From Website
-          Visit https://luisbosque.github.io/howmanyhours
-
-          ### Direct Install
           ```bash
           adb install howmanyhours-v${{ steps.version.outputs.version }}.apk
           ```
