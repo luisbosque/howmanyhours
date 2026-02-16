@@ -240,6 +240,59 @@ body::before {
   line-height: 1.8;
 }
 
+/* ---- Feature Row (text + screenshot) ---- */
+
+.feature-row {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.feature-row.reverse {
+  flex-direction: row-reverse;
+}
+
+.feature-text {
+  flex: 1;
+}
+
+.feature-text .feature-label {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--purple-bright);
+  letter-spacing: 0.1em;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.feature-text h2 {
+  font-family: var(--mono);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--white);
+  margin-bottom: 1rem;
+}
+
+.feature-text p {
+  font-size: 1.05rem;
+  color: var(--white-soft);
+  line-height: 1.8;
+}
+
+.feature-screenshot {
+  flex: 0 0 260px;
+}
+
+.feature-screenshot img {
+  width: 100%;
+  border-radius: 16px;
+  border: 2px solid rgba(179, 136, 255, 0.2);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(124, 77, 255, 0.15);
+}
+
 /* ---- Privacy Section ---- */
 
 .privacy-section {
@@ -448,8 +501,25 @@ body::before {
     padding: 3.5rem 1rem;
   }
 
-  .feature-content h2 {
+  .feature-content h2,
+  .feature-text h2 {
     font-size: 1.4rem;
+  }
+
+  .feature-row {
+    flex-direction: column;
+    gap: 2rem;
+    text-align: center;
+  }
+
+  .feature-row.reverse {
+    flex-direction: column;
+  }
+
+  .feature-screenshot {
+    flex: 0 0 auto;
+    max-width: 220px;
+    margin: 0 auto;
   }
 
   .privacy-grid {
