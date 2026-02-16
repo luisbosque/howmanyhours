@@ -81,7 +81,6 @@ base64 -w0 howmanyhours-release.jks | pbcopy   # macOS
 base64 -w0 howmanyhours-release.jks | xclip     # Linux
 ```
 
-See [SIGNING.md](SIGNING.md) for details on generating and managing keystores.
 
 ### Publishing to Google Play
 

@@ -6,10 +6,12 @@ A simple, clean Android app for tracking time spent on projects.
 
 - Create and delete projects
 - One button start/stop time tracking
+- Named tracked intervals
 - View tracking history
 - Export time data to CSV
 - Back up to csv
 - Montly and manual-checkin tracking periods
+- Fully offline and no ads
 
 ## Development Setup
 
@@ -246,7 +248,7 @@ If you prefer Android Studio on Fedora 42:
 ## Project Structure
 
 ```
-app/src/main/java/com/howmanyhours/
+app/src/main/java/net/luisico/howmanyhours/
 ├── data/
 │   ├── entities/          # Room entities (Project, TimeEntry)
 │   ├── dao/              # Data Access Objects

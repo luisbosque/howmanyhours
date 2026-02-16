@@ -49,7 +49,7 @@ echo -e "${GREEN}✓ Updated build.gradle.kts${NC}"
 if [ ! -f "keystore.properties" ]; then
     echo -e "${RED}Error: keystore.properties not found!${NC}"
     echo "Release builds require signing configuration."
-    echo "See SIGNING.md for setup instructions."
+    echo "See docs/RELEASE.md for setup instructions."
     exit 1
 fi
 
