@@ -1,16 +1,15 @@
 # How Many Hours - Android Time Tracking App
 
-A simple, clean Android app for tracking time spent on projects. Built with Kotlin, Jetpack Compose, and Room database.
+A simple, clean Android app for tracking time spent on projects.
 
 ## Features
 
-- ✅ Create and delete projects
-- ✅ Start/stop time tracking with big, simple buttons
-- ✅ View current run time and monthly hours
-- ✅ Confirmation dialog when switching between active projects
-- ✅ Export time data to CSV
-- ✅ Modern Material Design 3 UI
-- ✅ Local data storage with Room database
+- Create and delete projects
+- One button start/stop time tracking
+- View tracking history
+- Export time data to CSV
+- Back up to csv
+- Montly and manual-checkin tracking periods
 
 ## Development Setup
 
@@ -269,32 +268,6 @@ app/src/main/java/com/howmanyhours/
 - **Kotlin Coroutines** for asynchronous operations
 - **Material Design 3** for consistent, modern UI
 
-## Usage
-
-1. **Create Projects**: Tap the + button to create new projects
-2. **Start Tracking**: Select a project and tap the large Start button
-3. **Switch Projects**: Tap another project while one is active (shows confirmation)
-4. **View Time**: See current run time and monthly totals on the main screen
-5. **Export Data**: Go to Settings > Export to CSV to share your time data
-6. **Delete Projects**: Tap the delete icon next to any project
-
-## Backup Strategy
-
-Currently, the app stores data locally. For backup options:
-
-1. **CSV Export**: Regular exports via Settings screen
-2. **Future Options**: 
-   - Cloud sync (Google Drive, Dropbox)
-   - Backend API integration
-   - Device backup via Android's Auto Backup
-
-## Future Enhancements
-
-- Bluetooth device integration (smartwatch support)
-- Cloud synchronization
-- Detailed time analytics and reports
-- Project categories and tags
-- Time tracking goals and notifications
 
 ## Contributing
 
