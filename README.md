@@ -1,4 +1,4 @@
-# How Many Hours - Android Time Tracking App
+# How Many Hours - Android Projects Time Tracking App
 
 A simple, clean Android app for tracking time spent on projects.
 
