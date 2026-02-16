@@ -30,7 +30,7 @@ jobs:
           echo "available=true" >> $GITHUB_OUTPUT
         else
           echo "available=false" >> $GITHUB_OUTPUT
-          echo "::notice::Signing secrets not configured. Building unsigned APK."
+          echo "::notice::Signing secrets not configured. Building debug APK."
         fi
 
     - name: Decode keystore
@@ -57,12 +57,15 @@ jobs:
     - name: Run tests
       run: ./gradlew test
 
-    - name: Build release APK
-      run: ./gradlew assembleRelease
-
-    - name: Build release AAB
+    - name: Build signed release APK and AAB
       if: steps.signing.outputs.available == 'true'
-      run: ./gradlew bundleRelease
+      run: |
+        ./gradlew assembleRelease
+        ./gradlew bundleRelease
+
+    - name: Build debug APK
+      if: steps.signing.outputs.available != 'true'
+      run: ./gradlew assembleDebug
 
     - name: Get version name
       id: version
@@ -73,17 +76,15 @@ jobs:
     - name: Prepare APK
       id: apk
       run: |
-        SIGNED="app/build/outputs/apk/release/app-release.apk"
-        UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
         VERSION="${{ steps.version.outputs.version }}"
         TARGET="howmanyhours-v${VERSION}.apk"
+        RELEASE="app/build/outputs/apk/release/app-release.apk"
+        DEBUG="app/build/outputs/apk/debug/app-debug.apk"
 
-        if [ -f "$SIGNED" ]; then
-          cp "$SIGNED" "$TARGET"
-          echo "signed=true" >> $GITHUB_OUTPUT
-        elif [ -f "$UNSIGNED" ]; then
-          cp "$UNSIGNED" "$TARGET"
-          echo "signed=false" >> $GITHUB_OUTPUT
+        if [ -f "$RELEASE" ]; then
+          cp "$RELEASE" "$TARGET"
+        elif [ -f "$DEBUG" ]; then
+          cp "$DEBUG" "$TARGET"
         else
           echo "::error::No APK found"
           exit 1
