@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Project website (Jekyll, in `website/` subdirectory)
 - GitHub Pages deployment workflow (currently disabled until Pages is enabled)
 - Release documentation (`docs/RELEASE.md`)
+- Trademark policy (`TRADEMARK.md`)
 
 ### Changed
 - Release workflow now builds unsigned APK when signing secrets are not configured

@@ -118,7 +118,7 @@ If you don't have a physical Android device, set up an emulator:
 
 ### Installing on Physical Android Device
 
-To install the app directly on your Android phone without going through Google Play Store:
+To install the app directly on your Android phone:
 
 #### Method 1: USB Installation (Recommended for Development)
 
@@ -179,7 +179,6 @@ For sharing with others or production use:
 # The APK will be at: app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
-**Note**: For Google Play Store distribution, you need to sign the APK with your keystore.
 
 ### Development vs Production Installation
 
@@ -279,6 +278,8 @@ app/src/main/java/com/howmanyhours/
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
 
-Copyright (c) 2026 Luis Bosque
+### Trademark
+
+The project name, logos, icons, package namespace, and author's personal information are **not** licensed for use in derivative works. Forks must rebrand fully. See [TRADEMARK.md](TRADEMARK.md) for details.
