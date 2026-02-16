@@ -116,7 +116,7 @@ jobs:
             !found && $0 ~ unrel { found=1; next }
             found && /^## \[/ { exit }
             found { print }
-          ' docs/CHANGELOG.md
+          ' CHANGELOG.md
           echo "ENDOFNOTES"
         } >> $GITHUB_OUTPUT
 

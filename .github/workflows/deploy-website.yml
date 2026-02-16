@@ -1,8 +1,10 @@
 name: Deploy Website
 
-# Disabled until GitHub Pages is enabled in repo settings
-# (Settings > Pages > Source > GitHub Actions)
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
   workflow_dispatch:
 
 permissions:
