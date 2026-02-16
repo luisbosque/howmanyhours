@@ -2,6 +2,10 @@
 
 A simple, clean Android app for tracking time spent on projects.
 
+> **How the core project has been built:** This project was designed and directed by a human but largely implemented through vibe coding. The feature set and product direction came from me. If you're an experienced Android developer and some patterns look unconventional, that's probably why.
+>
+> **Early stage:** I've been using this app daily and it works well for my needs, but it hasn't been battle-tested by a wider audience yet. If you run into rough edges, [open an issue](https://github.com/luisbosque/howmanyhours/issues) - bug reports, feature ideas, and contributions are all welcome.
+
 ## Features
 
 - Create and delete projects

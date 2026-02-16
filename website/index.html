@@ -108,6 +108,15 @@ title: How Many Hours - Privacy-First Time Tracker for Android
   </div>
 </section>
 
+<section class="about-section fade-in" id="about">
+  <div class="container about-content">
+    <span class="feature-label">// ABOUT</span>
+    <h2>Built with honesty</h2>
+    <p>This app was designed and directed by a human, largely implemented through vibe coding. The project is in its early stages &mdash; I use it daily and it works well, but it hasn't been tested by a wider audience yet. It's open source, and bug reports, ideas, and contributions are welcome.</p>
+    <a href="https://github.com/luisbosque/howmanyhours/issues" class="about-link">Open an issue on GitHub &rarr;</a>
+  </div>
+</section>
+
 <section class="download-section" id="download">
   <div class="container">
     <h2>Get it now</h2>
@@ -136,7 +145,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
   }, { threshold: 0.15 });
-  document.querySelectorAll('.feature-section, .privacy-section, .download-section').forEach(function (el) {
+  document.querySelectorAll('.feature-section, .privacy-section, .about-section, .download-section').forEach(function (el) {
     observer.observe(el);
   });
 });

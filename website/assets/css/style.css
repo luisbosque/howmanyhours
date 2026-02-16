@@ -316,6 +316,46 @@ body::before {
   color: var(--white-dim);
 }
 
+/* ---- About Section ---- */
+
+.about-section {
+  padding: 5rem 1.5rem;
+  background: var(--purple-dark);
+  border-top: 1px solid rgba(179, 136, 255, 0.1);
+}
+
+.about-content {
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.about-content h2 {
+  font-family: var(--mono);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--white);
+  margin-bottom: 1rem;
+}
+
+.about-content p {
+  font-size: 1.05rem;
+  color: var(--white-soft);
+  line-height: 1.8;
+  margin-bottom: 1.25rem;
+}
+
+.about-link {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--purple-bright);
+  text-decoration: none;
+}
+
+.about-link:hover {
+  text-decoration: underline;
+}
+
 /* ---- Download Section ---- */
 
 .download-section {
