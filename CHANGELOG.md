@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - App screenshots in website feature sections with two-column layout
+- Open Graph and Twitter Card meta tags for social media link previews
 
 ## [0.1.0] - 2026-02-16
 
