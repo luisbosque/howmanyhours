@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import net.luisico.howmanyhours.backup.BackupInfo
 import net.luisico.howmanyhours.backup.BackupManager
+import net.luisico.howmanyhours.backup.BackupStats
 import net.luisico.howmanyhours.backup.BackupType
 import net.luisico.howmanyhours.backup.RestoreResult
 import net.luisico.howmanyhours.repository.TimeTrackingRepository
@@ -54,8 +55,8 @@ fun BackupScreen(
     var autoExportFolderUri by remember { mutableStateOf<String?>(null) }
     var isCreatingBackup by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
-    var showValidationDialog by remember { mutableStateOf(false) }
-    var pendingRestore by remember { mutableStateOf<Pair<BackupInfo, net.luisico.howmanyhours.backup.BackupValidation>?>(null) }
+    var showRestoreConfirmationDialog by remember { mutableStateOf(false) }
+    var pendingRestoreData by remember { mutableStateOf<Triple<BackupInfo, net.luisico.howmanyhours.backup.BackupValidation, BackupStats>?>(null) }
     var showRestartDialog by remember { mutableStateOf(false) }
 
     // File picker for import
@@ -325,26 +326,13 @@ fun BackupScreen(
                         backup = backup,
                         onRestore = {
                             scope.launch {
-                                // Validate backup first
                                 val validation = backupManager.validateBackup(backup)
-
                                 if (!validation.isValid) {
-                                    // Show error message for invalid backups
                                     snackbarHostState.showSnackbar(validation.message)
-                                } else if (validation.requiresDestructiveMigration) {
-                                    // Show warning dialog for backups requiring destructive migration
-                                    pendingRestore = Pair(backup, validation)
-                                    showValidationDialog = true
                                 } else {
-                                    // Compatible backup - restore directly
-                                    when (val result = backupManager.restoreFromBackup(backup)) {
-                                        is RestoreResult.Success -> {
-                                            showRestartDialog = true
-                                        }
-                                        is RestoreResult.Failed -> {
-                                            snackbarHostState.showSnackbar("Restore failed: ${result.error}")
-                                        }
-                                    }
+                                    val currentStats = backupManager.getCurrentStats()
+                                    pendingRestoreData = Triple(backup, validation, currentStats)
+                                    showRestoreConfirmationDialog = true
                                 }
                             }
                         }
@@ -419,22 +407,79 @@ fun BackupScreen(
         )
     }
 
-    // Validation warning dialog
-    if (showValidationDialog && pendingRestore != null) {
-        val (backup, validation) = pendingRestore!!
+    // Restore confirmation dialog
+    if (showRestoreConfirmationDialog && pendingRestoreData != null) {
+        val (backup, validation, currentStats) = pendingRestoreData!!
+        val statsFmt = remember {
+            SimpleDateFormat("MMM dd, yyyy 'at' HH:mm", Locale.getDefault()).apply {
+                timeZone = TimeZone.getDefault()
+            }
+        }
+        val currentIsNewer = (currentStats.lastEntryDate != null && backup.lastEntryDate != null &&
+                currentStats.lastEntryDate.after(backup.lastEntryDate)) ||
+                currentStats.entryCount > backup.entryCount
+
         AlertDialog(
             onDismissRequest = {
-                showValidationDialog = false
-                pendingRestore = null
+                showRestoreConfirmationDialog = false
+                pendingRestoreData = null
             },
-            title = { Text("Backup Compatibility Warning") },
+            title = { Text("Restore Backup?") },
             text = {
-                Column {
-                    Text(validation.message)
-                    Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column {
+                        Text(
+                            "Backup contains:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "${backup.projectCount} projects · ${backup.entryCount} entries",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        backup.lastEntryDate?.let {
+                            Text(
+                                "Last entry: ${statsFmt.format(it)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            "Current data:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "${currentStats.projectCount} projects · ${currentStats.entryCount} entries",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        currentStats.lastEntryDate?.let {
+                            Text(
+                                "Last entry: ${statsFmt.format(it)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (currentIsNewer) {
+                        Text(
+                            "Your current database has more recent data than this backup. Restoring will lose the entries added since the backup was created.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (validation.requiresDestructiveMigration) {
+                        Text(
+                            validation.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Text(
-                        "Do you want to proceed with the restore?",
-                        style = MaterialTheme.typography.bodyMedium,
+                        "All current data will be replaced. This cannot be undone.",
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -442,31 +487,27 @@ fun BackupScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showValidationDialog = false
+                        showRestoreConfirmationDialog = false
                         scope.launch {
                             when (val result = backupManager.restoreFromBackup(backup)) {
-                                is RestoreResult.Success -> {
-                                    showRestartDialog = true
-                                }
-                                is RestoreResult.Failed -> {
-                                    snackbarHostState.showSnackbar("Restore failed: ${result.error}")
-                                }
+                                is RestoreResult.Success -> showRestartDialog = true
+                                is RestoreResult.Failed -> snackbarHostState.showSnackbar("Restore failed: ${result.error}")
                             }
-                            pendingRestore = null
+                            pendingRestoreData = null
                         }
                     },
                     colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.primary
+                        contentColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("Restore Anyway")
+                    Text("Restore")
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = {
-                        showValidationDialog = false
-                        pendingRestore = null
+                        showRestoreConfirmationDialog = false
+                        pendingRestoreData = null
                     }
                 ) {
                     Text("Cancel")
@@ -560,7 +601,7 @@ fun BackupCard(
                     }
 
                     Text(
-                        text = "Size: ${formatFileSize(backup.sizeBytes)}",
+                        text = "Size: ${formatFileSize(backup.sizeBytes)} · Schema v${backup.schemaVersion}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

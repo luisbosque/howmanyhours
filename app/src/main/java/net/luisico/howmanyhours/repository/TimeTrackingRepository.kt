@@ -124,19 +124,21 @@ class TimeTrackingRepository(
     suspend fun addTimeEntry(projectId: Long, hoursInMinutes: Long, name: String? = null) {
         if (hoursInMinutes > 0) {
             val now = Date()
+            val startTime = Date(now.time - (hoursInMinutes * 60 * 1000))
             val timeEntry = TimeEntry(
                 projectId = projectId,
-                startTime = now,
+                startTime = startTime,
                 endTime = now,
                 isRunning = false,
+                isManual = true,
                 name = name
             )
-            // Calculate the end time to represent the duration
-            val endTime = Date(now.time + (hoursInMinutes * 60 * 1000))
-            val finalEntry = timeEntry.copy(endTime = endTime)
-            timeEntryDao.insertTimeEntry(finalEntry)
+            timeEntryDao.insertTimeEntry(timeEntry)
         }
     }
+
+    suspend fun getMostRecentCompletedEntry(projectId: Long): TimeEntry? =
+        timeEntryDao.getMostRecentCompletedEntry(projectId)
 
     // Period management methods
 

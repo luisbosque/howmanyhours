@@ -62,4 +62,7 @@ interface TimeEntryDao {
 
     @Query("UPDATE time_entries SET isRunning = 0, endTime = :endTime WHERE isRunning = 1")
     suspend fun stopAllRunningEntries(endTime: Date)
+
+    @Query("SELECT * FROM time_entries WHERE projectId = :projectId AND isRunning = 0 AND endTime IS NOT NULL ORDER BY endTime DESC LIMIT 1")
+    suspend fun getMostRecentCompletedEntry(projectId: Long): TimeEntry?
 }

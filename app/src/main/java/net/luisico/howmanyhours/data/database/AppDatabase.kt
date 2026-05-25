@@ -17,7 +17,7 @@ import net.luisico.howmanyhours.utils.DateConverters
 
 @Database(
     entities = [Project::class, TimeEntry::class, PeriodClose::class],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(DateConverters::class)
@@ -90,6 +90,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 4 to 5: Add isManual flag to time_entries
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE time_entries ADD COLUMN isManual INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -97,7 +106,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "howmanyhours_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 // No fallback - backups handle old schema versions via migration
                 .build()
                 INSTANCE = instance

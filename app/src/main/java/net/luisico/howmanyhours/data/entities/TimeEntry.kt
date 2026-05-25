@@ -23,7 +23,8 @@ data class TimeEntry(
     val startTime: Date,
     val endTime: Date? = null,
     val isRunning: Boolean = false,
-    val name: String? = null
+    val name: String? = null,
+    val isManual: Boolean = false
 ) {
     fun getDurationInMinutes(): Long {
         val end = endTime ?: Date()

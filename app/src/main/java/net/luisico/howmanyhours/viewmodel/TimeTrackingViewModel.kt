@@ -440,10 +440,8 @@ class TimeTrackingViewModel(
         val writer = outputStream.bufferedWriter()
 
         try {
-            // Write CSV header
-            writer.write("Project,Entry Name,Start Time,End Time,Duration (minutes)\n")
+            writer.write("Project,Entry Name,Start Time,End Time,Duration (minutes),Type\n")
 
-            // Process entries in batches of 1000 to avoid loading everything into memory
             val batchSize = 1000
             var offset = 0
             var batch: List<net.luisico.howmanyhours.data.entities.TimeEntry>
@@ -453,18 +451,18 @@ class TimeTrackingViewModel(
 
                 for (entry in batch) {
                     val project = projects.find { it.id == entry.projectId }
-                    // Properly escape quotes in entry names for CSV
                     val entryName = entry.name?.let {
-                        "\"${it.replace("\"", "\"\"")}\""  // Escape quotes by doubling them
+                        "\"${it.replace("\"", "\"\"")}\""
                     } ?: ""
+                    val type = if (entry.isManual) "manual" else "automatic"
 
                     writer.write(
-                        "${project?.name ?: "Unknown"},$entryName,${entry.startTime},${entry.endTime ?: "Running"},${entry.getDurationInMinutes()}\n"
+                        "${project?.name ?: "Unknown"},$entryName,${entry.startTime},${entry.endTime ?: "Running"},${entry.getDurationInMinutes()},$type\n"
                     )
                 }
 
                 offset += batchSize
-            } while (batch.size == batchSize)  // Continue while we got a full batch
+            } while (batch.size == batchSize)
 
             writer.flush()
         } finally {
@@ -472,16 +470,48 @@ class TimeTrackingViewModel(
         }
     }
 
-    fun addTimeEntry(projectId: Long, hoursInMinutes: Long, name: String? = null) {
+    fun addTimeEntry(projectId: Long, minutes: Long, name: String? = null) {
         viewModelScope.launch {
-            repository.addTimeEntry(projectId, hoursInMinutes, name)
+            val now = Date()
+            val proposedStart = Date(now.time - minutes * 60 * 1000)
+            val recentEntry = repository.getMostRecentCompletedEntry(projectId)
 
-            // Refresh the period hours display
-            if (_uiState.value.activeProject?.id == projectId) {
-                loadCurrentPeriod(projectId)
+            if (recentEntry?.endTime != null && recentEntry.endTime.after(proposedStart)) {
+                val minutesSinceLast = maxOf(0L, (now.time - recentEntry.endTime.time) / 60000)
+                _uiState.update {
+                    it.copy(overlapWarning = OverlapWarning(
+                        projectId = projectId,
+                        requestedMinutes = minutes,
+                        requestedName = name,
+                        conflictEntry = recentEntry,
+                        minutesSinceConflictEnd = minutesSinceLast,
+                        proposedStartTime = proposedStart
+                    ))
+                }
+            } else {
+                saveTimeEntry(projectId, minutes, name)
             }
-            loadAllProjectsMonthlyHours() // Refresh all projects' monthly hours
         }
+    }
+
+    fun confirmAddTimeEntry(correctedMinutes: Long) {
+        val warning = _uiState.value.overlapWarning ?: return
+        _uiState.update { it.copy(overlapWarning = null) }
+        viewModelScope.launch {
+            saveTimeEntry(warning.projectId, correctedMinutes, warning.requestedName)
+        }
+    }
+
+    fun dismissOverlapWarning() {
+        _uiState.update { it.copy(overlapWarning = null) }
+    }
+
+    private suspend fun saveTimeEntry(projectId: Long, minutes: Long, name: String?) {
+        repository.addTimeEntry(projectId, minutes, name)
+        if (_uiState.value.activeProject?.id == projectId) {
+            loadCurrentPeriod(projectId)
+        }
+        refreshAllProjectsMonthlyHours()
     }
 
     // Period management methods
@@ -586,10 +616,16 @@ class TimeTrackingViewModel(
             val runningEntry = _uiState.value.runningTimeEntry
             if (runningEntry != null) {
                 repository.updateEntryName(runningEntry.id, newName)
-                // Reload the running entry to update UI
                 val updatedEntry = repository.getRunningTimeEntry()
                 _uiState.update { it.copy(runningTimeEntry = updatedEntry) }
             }
+        }
+    }
+
+    fun updateTimeEntryName(entryId: Long, newName: String) {
+        viewModelScope.launch {
+            repository.updateEntryName(entryId, newName)
+            // The selectPeriod flow subscription will auto-refresh periodEntries via Room
         }
     }
 
@@ -613,6 +649,15 @@ class TimeTrackingViewModel(
     }
 }
 
+data class OverlapWarning(
+    val projectId: Long,
+    val requestedMinutes: Long,
+    val requestedName: String?,
+    val conflictEntry: TimeEntry,
+    val minutesSinceConflictEnd: Long,
+    val proposedStartTime: Date
+)
+
 data class TimeTrackingUiState(
     val activeProject: Project? = null,
     val runningTimeEntry: TimeEntry? = null,
@@ -624,5 +669,6 @@ data class TimeTrackingUiState(
     val currentPeriod: Period? = null,
     val allPeriods: List<Period> = emptyList(),
     val selectedPeriod: Period? = null,
-    val periodEntries: List<TimeEntry> = emptyList()
+    val periodEntries: List<TimeEntry> = emptyList(),
+    val overlapWarning: OverlapWarning? = null
 )

@@ -5,12 +5,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import net.luisico.howmanyhours.data.entities.TimeEntry
 import net.luisico.howmanyhours.repository.Period
 import net.luisico.howmanyhours.viewmodel.TimeTrackingViewModel
@@ -27,9 +29,21 @@ fun PeriodDetailScreen(
     onNavigateBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var renamingEntry by remember { mutableStateOf<TimeEntry?>(null) }
 
     LaunchedEffect(period) {
         viewModel.selectPeriod(period)
+    }
+
+    renamingEntry?.let { entry ->
+        RenameEntryDialog(
+            currentName = entry.name ?: "",
+            onDismiss = { renamingEntry = null },
+            onRename = { newName ->
+                viewModel.updateTimeEntryName(entry.id, newName)
+                renamingEntry = null
+            }
+        )
     }
 
     Scaffold(
@@ -95,7 +109,11 @@ fun PeriodDetailScreen(
                     }
 
                     items(entries) { entry ->
-                        EntryDetailCard(entry, period)
+                        EntryDetailCard(
+                            entry = entry,
+                            period = period,
+                            onEditName = { renamingEntry = entry }
+                        )
                     }
                 }
 
@@ -121,25 +139,49 @@ fun PeriodDetailScreen(
 }
 
 @Composable
-fun EntryDetailCard(entry: TimeEntry, @Suppress("UNUSED_PARAMETER") period: Period) {
+fun EntryDetailCard(
+    entry: TimeEntry,
+    @Suppress("UNUSED_PARAMETER") period: Period,
+    onEditName: () -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                if (!entry.name.isNullOrEmpty()) {
-                    Text(
-                        entry.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                } else {
-                    Text(
-                        "Untitled entry",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (!entry.name.isNullOrEmpty()) {
+                        Text(
+                            entry.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                    } else {
+                        Text(
+                            "Untitled entry",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (entry.isManual) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = MaterialTheme.shapes.small
+                        ) {
+                            Text(
+                                "manual",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(4.dp))
@@ -151,11 +193,21 @@ fun EntryDetailCard(entry: TimeEntry, @Suppress("UNUSED_PARAMETER") period: Peri
                 )
             }
 
-            Text(
-                formatDuration(entry.getDurationInMinutes()),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    formatDuration(entry.getDurationInMinutes()),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onEditName) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "Edit name",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 }

@@ -24,13 +24,15 @@ data class BackupInfo(
     val sizeBytes: Long,
     val projectCount: Int = 0,
     val entryCount: Int = 0,
-    val lastEntryDate: Date? = null
+    val lastEntryDate: Date? = null,
+    val schemaVersion: Int = 0
 )
 
 data class BackupStats(
     val projectCount: Int,
     val entryCount: Int,
-    val lastEntryDate: Date?
+    val lastEntryDate: Date?,
+    val schemaVersion: Int = 0
 )
 
 data class BackupValidation(
@@ -92,6 +94,24 @@ class BackupManager(
     private var entryCountAtLastBackup: Int
         get() = prefs.getInt(PREF_ENTRY_COUNT_AT_LAST_BACKUP, 0)
         set(value) = prefs.edit().putInt(PREF_ENTRY_COUNT_AT_LAST_BACKUP, value).apply()
+
+    // Get current database stats for comparison before restore
+    suspend fun getCurrentStats(): BackupStats {
+        return withContext(Dispatchers.IO) {
+            try {
+                val entries = repository.getAllTimeEntries()
+                val projects = repository.getAllProjects().first()
+                val lastEntry = entries.maxByOrNull { it.startTime.time }?.startTime
+                BackupStats(
+                    projectCount = projects.size,
+                    entryCount = entries.size,
+                    lastEntryDate = lastEntry
+                )
+            } catch (e: Exception) {
+                BackupStats(0, 0, null)
+            }
+        }
+    }
 
     // Check if backup is needed
     suspend fun checkAndCreateBackupIfNeeded(): Boolean {
@@ -230,7 +250,8 @@ class BackupManager(
                     sizeBytes = file.length(),
                     projectCount = backupStats.projectCount,
                     entryCount = backupStats.entryCount,
-                    lastEntryDate = backupStats.lastEntryDate
+                    lastEntryDate = backupStats.lastEntryDate,
+                    schemaVersion = backupStats.schemaVersion
                 )
             } catch (e: Exception) {
                 // If we can't read the backup, return basic info
@@ -241,7 +262,8 @@ class BackupManager(
                     sizeBytes = file.length(),
                     projectCount = 0,
                     entryCount = 0,
-                    lastEntryDate = null
+                    lastEntryDate = null,
+                    schemaVersion = 0
                 )
             }
         }
@@ -321,8 +343,9 @@ class BackupManager(
                 Pair(0, null)
             }
 
-            android.util.Log.d("BackupManager", "Final stats - Projects: $projectCount, Entries: $entryCount")
-            BackupStats(projectCount, entryCount, lastEntryDate)
+            val schemaVersion = database.version
+            android.util.Log.d("BackupManager", "Final stats - Projects: $projectCount, Entries: $entryCount, Version: $schemaVersion")
+            BackupStats(projectCount, entryCount, lastEntryDate, schemaVersion)
 
         } catch (e: Exception) {
             android.util.Log.e("BackupManager", "Failed to read backup stats: ${e.message}", e)
@@ -431,7 +454,7 @@ class BackupManager(
                 return@withContext BackupValidation(
                     isValid = false,
                     backupVersion = 0,
-                    currentVersion = 4,
+                    currentVersion = 5,
                     requiresDestructiveMigration = false,
                     message = "Backup file does not exist"
                 )
@@ -448,7 +471,7 @@ class BackupManager(
 
                 // Get database version
                 val backupVersion = database.version
-                val currentVersion = 4 // Current app database version
+                val currentVersion = 5 // Current app database version
 
                 android.util.Log.d("BackupManager", "Backup version: $backupVersion, Current version: $currentVersion")
 
@@ -487,7 +510,7 @@ class BackupManager(
                             )
                         }
                     }
-                    backupVersion < 4 -> {
+                    backupVersion < 5 -> {
                         // Old schema - will be migrated during restore
                         BackupValidation(
                             isValid = true,
@@ -532,7 +555,7 @@ class BackupManager(
                 BackupValidation(
                     isValid = false,
                     backupVersion = 0,
-                    currentVersion = 4,
+                    currentVersion = 5,
                     requiresDestructiveMigration = false,
                     message = "Failed to read backup file: ${e.message}"
                 )
@@ -545,7 +568,7 @@ class BackupManager(
     // Migrate backup to current version if needed
     private suspend fun migrateBackupToCurrentVersion(backupFile: File, fromVersion: Int): File? {
         return withContext(Dispatchers.IO) {
-            if (fromVersion >= 4) {
+            if (fromVersion >= 5) {
                 // Already current version, no migration needed
                 return@withContext backupFile
             }
@@ -555,7 +578,7 @@ class BackupManager(
                 val tempFile = File(backupFile.parent, "${backupFile.name}.migrating")
                 backupFile.copyTo(tempFile, overwrite = true)
 
-                android.util.Log.d("BackupManager", "Migrating backup from version $fromVersion to version 4")
+                android.util.Log.d("BackupManager", "Migrating backup from version $fromVersion to version 5")
 
                 var database: SQLiteDatabase? = null
                 try {
@@ -618,11 +641,18 @@ class BackupManager(
                     if (currentVersion == 3) {
                         android.util.Log.d("BackupManager", "Applying migration 3→4")
                         database.execSQL("CREATE INDEX IF NOT EXISTS index_time_entries_projectId ON time_entries(projectId)")
+                        currentVersion = 4
+                    }
+
+                    // Migration 4→5: Add isManual flag to time_entries
+                    if (currentVersion == 4) {
+                        android.util.Log.d("BackupManager", "Applying migration 4→5")
+                        database.execSQL("ALTER TABLE time_entries ADD COLUMN isManual INTEGER NOT NULL DEFAULT 0")
                     }
 
                     // Update database version
-                    database.version = 4
-                    android.util.Log.d("BackupManager", "Migration completed successfully to version 4")
+                    database.version = 5
+                    android.util.Log.d("BackupManager", "Migration completed successfully to version 5")
 
                     return@withContext tempFile
 

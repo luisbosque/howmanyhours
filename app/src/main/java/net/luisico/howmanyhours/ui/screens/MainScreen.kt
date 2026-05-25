@@ -36,7 +36,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import net.luisico.howmanyhours.R
 import net.luisico.howmanyhours.backup.BackupManager
 import net.luisico.howmanyhours.data.entities.Project
+import net.luisico.howmanyhours.viewmodel.OverlapWarning
 import net.luisico.howmanyhours.viewmodel.TimeTrackingViewModel
+import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,15 +67,7 @@ fun MainScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var showBackupStatusTooltip by remember { mutableStateOf(false) }
 
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showCreateDialog = true }
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Project")
-            }
-        }
-    ) { paddingValues ->
+    Scaffold { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -176,11 +170,21 @@ fun MainScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Projects List
-            Text(
-                text = "Projects",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Projects",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                IconButton(onClick = { showCreateDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Project")
+                }
+            }
 
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -278,6 +282,15 @@ fun MainScreen(
                 viewModel.addTimeEntry(uiState.activeProject!!.id, minutes, name)
                 showAddEntryDialog = false
             }
+        )
+    }
+
+    // Overlap Warning Dialog
+    uiState.overlapWarning?.let { warning ->
+        OverlapWarningDialog(
+            warning = warning,
+            onConfirm = { correctedMinutes -> viewModel.confirmAddTimeEntry(correctedMinutes) },
+            onDismiss = { viewModel.dismissOverlapWarning() }
         )
     }
 
@@ -731,6 +744,66 @@ fun RenameEntryDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun OverlapWarningDialog(
+    warning: OverlapWarning,
+    onConfirm: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val timeFmt = remember {
+        SimpleDateFormat("h:mm a", Locale.getDefault()).apply {
+            timeZone = TimeZone.getDefault()
+        }
+    }
+    var minutesText by remember { mutableStateOf(warning.requestedMinutes.toString()) }
+    val conflictEndTime = warning.conflictEntry.endTime!!
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Time Overlap") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Your entry would start at ${timeFmt.format(warning.proposedStartTime)}, " +
+                    "but the previous entry didn't end until ${timeFmt.format(conflictEndTime)}.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = minutesText,
+                    onValueChange = { minutesText = it },
+                    label = { Text("Minutes") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                if (warning.minutesSinceConflictEnd > 0) {
+                    OutlinedButton(
+                        onClick = { minutesText = warning.minutesSinceConflictEnd.toString() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Use ${warning.minutesSinceConflictEnd} min (from ${timeFmt.format(conflictEndTime)} to now)")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val minutes = minutesText.toLongOrNull()
+                    if (minutes != null && minutes > 0) onConfirm(minutes)
+                },
+                enabled = minutesText.toLongOrNull()?.let { it > 0 } == true
+            ) {
+                Text(stringResource(R.string.add))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
             }
         }
     )
