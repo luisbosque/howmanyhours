@@ -36,8 +36,15 @@ class TimeTrackingViewModel(
     private val _uiState = MutableStateFlow(TimeTrackingUiState())
     val uiState: StateFlow<TimeTrackingUiState> = _uiState.asStateFlow()
 
-    val projects = repository.getAllProjects()
-    
+    internal val allProjects = repository.getAllProjects()
+    val unarchivedProjects = repository.getUnarchivedProjects()
+
+    fun setProjectArchived(projectId: Long, archived: Boolean) {
+        viewModelScope.launch {
+            repository.setProjectArchived(projectId, archived)
+        }
+    }
+
     private var timerJob: Job? = null
     private var monthlyHoursJob: Job? = null
 
@@ -55,7 +62,7 @@ class TimeTrackingViewModel(
 
         // Check monthly auto-close for all projects in monthly mode
         viewModelScope.launch {
-            projects.first().filter { it.periodMode == "monthly" }.forEach { project ->
+            allProjects.first().filter { it.periodMode == "monthly" }.forEach { project ->
                 repository.checkMonthlyAutoClose(project.id)
             }
         }
@@ -157,8 +164,8 @@ class TimeTrackingViewModel(
             val calendar = Calendar.getInstance(TimeZone.getDefault())
             val currentYear = calendar.get(Calendar.YEAR)
             val currentMonth = calendar.get(Calendar.MONTH)
-            
-            val currentProjects = projects.first()
+
+            val currentProjects = allProjects.first()
             val monthlyHoursMap = mutableMapOf<Long, Long>()
             
             for (project in currentProjects) {
@@ -246,7 +253,7 @@ class TimeTrackingViewModel(
             val currentYear = calendar.get(Calendar.YEAR)
             val currentMonth = calendar.get(Calendar.MONTH)
 
-            projects.collect { projectList ->
+            allProjects.collect { projectList ->
                 // Build the monthly hours map properly for all projects
                 val monthlyHoursMap = mutableMapOf<Long, Long>()
                 
@@ -605,11 +612,7 @@ class TimeTrackingViewModel(
         }
     }
 
-    fun getProjectById(projectId: Long): Flow<Project?> {
-        return flow {
-            emit(repository.getProjectById(projectId))
-        }
-    }
+    fun getProjectById(projectId: Long): Flow<Project?> = repository.getProjectByIdFlow(projectId)
 
     fun updateRunningEntryName(newName: String) {
         viewModelScope.launch {

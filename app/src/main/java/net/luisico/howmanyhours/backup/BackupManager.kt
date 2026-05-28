@@ -454,7 +454,7 @@ class BackupManager(
                 return@withContext BackupValidation(
                     isValid = false,
                     backupVersion = 0,
-                    currentVersion = 5,
+                    currentVersion = 6,
                     requiresDestructiveMigration = false,
                     message = "Backup file does not exist"
                 )
@@ -471,7 +471,7 @@ class BackupManager(
 
                 // Get database version
                 val backupVersion = database.version
-                val currentVersion = 5 // Current app database version
+                val currentVersion = 6 // Current app database version
 
                 android.util.Log.d("BackupManager", "Backup version: $backupVersion, Current version: $currentVersion")
 
@@ -510,7 +510,7 @@ class BackupManager(
                             )
                         }
                     }
-                    backupVersion < 5 -> {
+                    backupVersion < 6 -> {
                         // Old schema - will be migrated during restore
                         BackupValidation(
                             isValid = true,
@@ -539,7 +539,7 @@ class BackupManager(
                         )
                     }
                     else -> {
-                        // Compatible version (3 or 4)
+                        // Compatible version
                         BackupValidation(
                             isValid = true,
                             backupVersion = backupVersion,
@@ -555,7 +555,7 @@ class BackupManager(
                 BackupValidation(
                     isValid = false,
                     backupVersion = 0,
-                    currentVersion = 5,
+                    currentVersion = 6,
                     requiresDestructiveMigration = false,
                     message = "Failed to read backup file: ${e.message}"
                 )
@@ -568,7 +568,7 @@ class BackupManager(
     // Migrate backup to current version if needed
     private suspend fun migrateBackupToCurrentVersion(backupFile: File, fromVersion: Int): File? {
         return withContext(Dispatchers.IO) {
-            if (fromVersion >= 5) {
+            if (fromVersion >= 6) {
                 // Already current version, no migration needed
                 return@withContext backupFile
             }
@@ -578,7 +578,7 @@ class BackupManager(
                 val tempFile = File(backupFile.parent, "${backupFile.name}.migrating")
                 backupFile.copyTo(tempFile, overwrite = true)
 
-                android.util.Log.d("BackupManager", "Migrating backup from version $fromVersion to version 5")
+                android.util.Log.d("BackupManager", "Migrating backup from version $fromVersion to version 6")
 
                 var database: SQLiteDatabase? = null
                 try {
@@ -648,11 +648,18 @@ class BackupManager(
                     if (currentVersion == 4) {
                         android.util.Log.d("BackupManager", "Applying migration 4→5")
                         database.execSQL("ALTER TABLE time_entries ADD COLUMN isManual INTEGER NOT NULL DEFAULT 0")
+                        currentVersion = 5
+                    }
+
+                    // Migration 5→6: Add isArchived flag to projects
+                    if (currentVersion == 5) {
+                        android.util.Log.d("BackupManager", "Applying migration 5→6")
+                        database.execSQL("ALTER TABLE projects ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0")
                     }
 
                     // Update database version
-                    database.version = 5
-                    android.util.Log.d("BackupManager", "Migration completed successfully to version 5")
+                    database.version = 6
+                    android.util.Log.d("BackupManager", "Migration completed successfully to version 6")
 
                     return@withContext tempFile
 

@@ -9,8 +9,14 @@ interface ProjectDao {
     @Query("SELECT * FROM projects ORDER BY name ASC")
     fun getAllProjects(): Flow<List<Project>>
 
+    @Query("SELECT * FROM projects WHERE isArchived = 0 ORDER BY name ASC")
+    fun getUnarchivedProjects(): Flow<List<Project>>
+
     @Query("SELECT * FROM projects WHERE id = :projectId")
     suspend fun getProjectById(projectId: Long): Project?
+
+    @Query("SELECT * FROM projects WHERE id = :projectId")
+    fun getProjectByIdFlow(projectId: Long): Flow<Project?>
 
     @Query("SELECT * FROM projects WHERE isActive = 1 LIMIT 1")
     suspend fun getActiveProject(): Project?

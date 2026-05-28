@@ -40,7 +40,11 @@ class TimeTrackingRepository(
 ) {
     fun getAllProjects(): Flow<List<Project>> = projectDao.getAllProjects()
 
+    fun getUnarchivedProjects(): Flow<List<Project>> = projectDao.getUnarchivedProjects()
+
     suspend fun getProjectById(projectId: Long): Project? = projectDao.getProjectById(projectId)
+
+    fun getProjectByIdFlow(projectId: Long): Flow<Project?> = projectDao.getProjectByIdFlow(projectId)
 
     suspend fun getActiveProject(): Project? = projectDao.getActiveProject()
 
@@ -239,6 +243,11 @@ class TimeTrackingRepository(
         val project = getProjectById(projectId) ?: throw IllegalArgumentException("Project not found")
         val updatedProject = project.copy(periodMode = newMode)
         updateProject(updatedProject)
+    }
+
+    suspend fun setProjectArchived(projectId: Long, archived: Boolean) {
+        val project = getProjectById(projectId) ?: return
+        updateProject(project.copy(isArchived = archived))
     }
 
     fun getEntriesForPeriod(period: Period): Flow<List<TimeEntry>> {

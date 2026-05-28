@@ -11,5 +11,6 @@ data class Project(
     val name: String,
     val createdAt: Date = Date(),
     val isActive: Boolean = false,
-    val periodMode: String = "monthly"
+    val periodMode: String = "monthly",
+    val isArchived: Boolean = false
 )

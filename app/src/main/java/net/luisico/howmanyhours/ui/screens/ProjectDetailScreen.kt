@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import net.luisico.howmanyhours.viewmodel.TimeTrackingViewModel
@@ -65,6 +67,13 @@ fun ProjectDetailScreen(
                     viewModel = viewModel,
                     projectId = projectId,
                     isTracking = uiState.isTracking && uiState.runningTimeEntry?.projectId == projectId
+                )
+            }
+
+            item {
+                ArchiveCard(
+                    isArchived = project?.isArchived ?: false,
+                    onArchiveChange = { archived -> viewModel.setProjectArchived(projectId, archived) }
                 )
             }
 
@@ -316,6 +325,45 @@ fun ClosePeriodDialog(
             }
         }
     )
+}
+
+@Composable
+fun ArchiveCard(
+    isArchived: Boolean,
+    onArchiveChange: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = if (isArchived) CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ) else CardDefaults.cardColors()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    "Archived",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isArchived) MaterialTheme.colorScheme.onSurfaceVariant else LocalContentColor.current
+                )
+                Text(
+                    if (isArchived) "Hidden from the projects list" else "Visible in the projects list",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = isArchived,
+                onCheckedChange = onArchiveChange
+            )
+        }
+    }
 }
 
 @Composable

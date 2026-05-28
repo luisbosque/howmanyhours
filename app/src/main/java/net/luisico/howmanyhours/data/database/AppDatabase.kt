@@ -17,7 +17,7 @@ import net.luisico.howmanyhours.utils.DateConverters
 
 @Database(
     entities = [Project::class, TimeEntry::class, PeriodClose::class],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(DateConverters::class)
@@ -99,6 +99,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 5 to 6: Add isArchived flag to projects
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE projects ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -106,7 +115,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "howmanyhours_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 // No fallback - backups handle old schema versions via migration
                 .build()
                 INSTANCE = instance

@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,6 +83,17 @@ class MainActivity : ComponentActivity() {
                 ) {
                     var currentScreen by remember { mutableStateOf<Screen>(Screen.Main) }
                     var showRecoveryDialog by remember { mutableStateOf(databaseRecovered) }
+
+                    BackHandler(enabled = currentScreen !is Screen.Main) {
+                        currentScreen = when (val screen = currentScreen) {
+                            is Screen.Settings -> Screen.Main
+                            is Screen.Backup -> Screen.Settings
+                            is Screen.ProjectDetail -> Screen.Main
+                            is Screen.PeriodHistory -> Screen.ProjectDetail(screen.projectId)
+                            is Screen.PeriodDetail -> Screen.PeriodHistory(screen.projectId)
+                            else -> Screen.Main
+                        }
+                    }
 
                     val viewModel: TimeTrackingViewModel = viewModel(
                         factory = TimeTrackingViewModel.Factory(repository, this@MainActivity)

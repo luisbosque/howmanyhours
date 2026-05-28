@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -27,6 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.window.Popup
@@ -50,7 +52,9 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
-    val projects by viewModel.projects.collectAsState(initial = emptyList())
+    var showArchivedProjects by remember { mutableStateOf(false) }
+    val projects by (if (showArchivedProjects) viewModel.allProjects else viewModel.unarchivedProjects)
+        .collectAsState(initial = emptyList())
 
     // Backup manager to check auto-export status
     val backupManager = remember { BackupManager(context, viewModel.backupRepository) }
@@ -177,10 +181,29 @@ fun MainScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Projects",
-                    style = MaterialTheme.typography.headlineSmall
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Projects",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    IconButton(
+                        onClick = { showArchivedProjects = !showArchivedProjects },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Archive,
+                            contentDescription = if (showArchivedProjects) "Hide archived" else "Show archived",
+                            modifier = Modifier.size(18.dp),
+                            tint = if (showArchivedProjects)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                        )
+                    }
+                }
                 IconButton(onClick = { showCreateDialog = true }) {
                     Icon(Icons.Default.Add, contentDescription = "Add Project")
                 }
@@ -536,11 +559,12 @@ fun ProjectCard(
     onDeleteClick: () -> Unit,
     onDetailsClick: () -> Unit
 ) {
+    val isArchived = project.isArchived
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .then(
-                if (isActive) 
+                if (isActive)
                     Modifier.border(
                         width = 2.dp,
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
@@ -549,10 +573,10 @@ fun ProjectCard(
                 else Modifier
             ),
         colors = CardDefaults.cardColors(
-            containerColor = if (isActive) {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            } else {
-                MaterialTheme.colorScheme.surface
+            containerColor = when {
+                isActive -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                isArchived -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                else -> MaterialTheme.colorScheme.surface
             }
         ),
         onClick = onProjectClick
@@ -574,9 +598,13 @@ fun ProjectCard(
                     ) {
                         Text(
                             text = project.name,
-                            style = MaterialTheme.typography.bodyLarge
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (isArchived)
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            else
+                                MaterialTheme.colorScheme.onSurface
                         )
-                        
+
                         if (isTracking) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Box(
@@ -588,8 +616,21 @@ fun ProjectCard(
                                     )
                             )
                         }
+
+                        if (isArchived) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Badge(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ) {
+                                Text(
+                                    "Archived",
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
+                        }
                     }
-                    
+
                     if (monthlyHours > 0) {
                         Text(
                             text = "This month: ${formatDuration(monthlyHours)}",
@@ -679,14 +720,17 @@ fun AddEntryDialog(
                     onValueChange = { minutesText = it },
                     label = { Text(stringResource(R.string.minutes_hint)) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 17.sp)
                 )
                 OutlinedTextField(
                     value = entryName,
                     onValueChange = { entryName = it },
                     label = { Text("Entry Name (optional)") },
                     placeholder = { Text("e.g., Client meeting, Code review") },
-                    singleLine = true
+                    minLines = 2,
+                    maxLines = 2,
+                    textStyle = LocalTextStyle.current.copy(fontSize = 17.sp)
                 )
             }
         },
