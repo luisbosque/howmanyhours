@@ -17,7 +17,7 @@ import net.luisico.howmanyhours.utils.DateConverters
 
 @Database(
     entities = [Project::class, TimeEntry::class, PeriodClose::class],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 @TypeConverters(DateConverters::class)
@@ -108,6 +108,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 6 to 7: Add isPausedInterval flag to time_entries
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE time_entries ADD COLUMN isPausedInterval INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -115,7 +124,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "howmanyhours_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 // No fallback - backups handle old schema versions via migration
                 .build()
                 INSTANCE = instance

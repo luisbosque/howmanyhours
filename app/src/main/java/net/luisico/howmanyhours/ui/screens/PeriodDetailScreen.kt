@@ -36,8 +36,10 @@ fun PeriodDetailScreen(
     }
 
     renamingEntry?.let { entry ->
+        LaunchedEffect(Unit) { viewModel.loadRecentEntryNames() }
         RenameEntryDialog(
             currentName = entry.name ?: "",
+            recentNames = uiState.recentEntryNames,
             onDismiss = { renamingEntry = null },
             onRename = { newName ->
                 viewModel.updateTimeEntryName(entry.id, newName)

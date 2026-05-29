@@ -65,4 +65,19 @@ interface TimeEntryDao {
 
     @Query("SELECT * FROM time_entries WHERE projectId = :projectId AND isRunning = 0 AND endTime IS NOT NULL ORDER BY endTime DESC LIMIT 1")
     suspend fun getMostRecentCompletedEntry(projectId: Long): TimeEntry?
+
+    @Query("SELECT DISTINCT name FROM time_entries WHERE name IS NOT NULL AND startTime >= :since ORDER BY startTime DESC")
+    suspend fun getRecentEntryNames(since: Date): List<String>
+
+    // Only deletes entries that are both in the provided IDs and still flagged as paused — double safety filter
+    @Query("DELETE FROM time_entries WHERE id IN (:ids) AND isPausedInterval = 1")
+    suspend fun deletePausedIntervals(ids: List<Long>)
+
+    // Clears the paused flag from completed session intervals (called on final stop)
+    @Query("UPDATE time_entries SET isPausedInterval = 0 WHERE id IN (:ids)")
+    suspend fun clearPausedIntervalFlags(ids: List<Long>)
+
+    // Clears all orphaned paused flags on app start (entries from a session that ended abnormally)
+    @Query("UPDATE time_entries SET isPausedInterval = 0 WHERE isPausedInterval = 1")
+    suspend fun clearAllPausedIntervalFlags()
 }

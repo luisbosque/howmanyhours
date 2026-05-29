@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
@@ -27,6 +28,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
@@ -66,7 +71,6 @@ fun MainScreen(
     }
 
     var showCreateDialog by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf<Project?>(null) }
     var showAddEntryDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showBackupStatusTooltip by remember { mutableStateOf(false) }
@@ -151,8 +155,11 @@ fun MainScreen(
                 monthlyHours = uiState.monthlyHours,
                 currentPeriod = uiState.currentPeriod,
                 isTracking = uiState.isTracking && uiState.activeProject?.id == uiState.runningTimeEntry?.projectId,
+                isPaused = uiState.isPaused,
+                pausedAccumulatedMinutes = uiState.pausedAccumulatedMinutes,
+                pausedEntryName = uiState.pausedEntryName,
                 onStartStop = {
-                    if (uiState.isTracking && uiState.activeProject?.id == uiState.runningTimeEntry?.projectId) {
+                    if (uiState.isTracking || uiState.isPaused) {
                         viewModel.stopTracking()
                     } else {
                         uiState.activeProject?.let { project ->
@@ -160,15 +167,11 @@ fun MainScreen(
                         }
                     }
                 },
-                onDiscard = {
-                    viewModel.discardTracking()
-                },
-                onAddEntry = {
-                    showAddEntryDialog = true
-                },
-                onRenameEntry = {
-                    showRenameDialog = true
-                }
+                onPause = { viewModel.pauseTracking() },
+                onResume = { viewModel.resumeTracking() },
+                onDiscard = { viewModel.discardTracking() },
+                onAddEntry = { showAddEntryDialog = true },
+                onRenameEntry = { showRenameDialog = true }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -219,7 +222,6 @@ fun MainScreen(
                         isTracking = uiState.isTracking && project.id == uiState.runningTimeEntry?.projectId,
                         monthlyHours = uiState.projectMonthlyHours[project.id] ?: 0L,
                         onProjectClick = { viewModel.selectProject(project) },
-                        onDeleteClick = { showDeleteDialog = project },
                         onDetailsClick = { onNavigateToProjectDetail(project.id) }
                     )
                 }
@@ -234,30 +236,6 @@ fun MainScreen(
             onCreateProject = { name ->
                 viewModel.createProject(name)
                 showCreateDialog = false
-            }
-        )
-    }
-
-    // Delete Project Dialog
-    showDeleteDialog?.let { project ->
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = null },
-            title = { Text("Delete Project") },
-            text = { Text("Are you sure you want to delete \"${project.name}\"? This action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.deleteProject(project)
-                        showDeleteDialog = null
-                    }
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = null }) {
-                    Text("Cancel")
-                }
             }
         )
     }
@@ -299,7 +277,9 @@ fun MainScreen(
 
     // Add Entry Dialog
     if (showAddEntryDialog && uiState.activeProject != null) {
+        LaunchedEffect(Unit) { viewModel.loadRecentEntryNames() }
         AddEntryDialog(
+            recentNames = uiState.recentEntryNames,
             onDismiss = { showAddEntryDialog = false },
             onAddEntry = { minutes, name ->
                 viewModel.addTimeEntry(uiState.activeProject!!.id, minutes, name)
@@ -317,10 +297,12 @@ fun MainScreen(
         )
     }
 
-    // Rename Entry Dialog
-    if (showRenameDialog && uiState.runningTimeEntry != null) {
+    // Rename Entry Dialog (also shown when paused)
+    if (showRenameDialog && (uiState.runningTimeEntry != null || uiState.isPaused)) {
+        LaunchedEffect(Unit) { viewModel.loadRecentEntryNames() }
         RenameEntryDialog(
-            currentName = uiState.runningTimeEntry?.name ?: "",
+            currentName = uiState.runningTimeEntry?.name ?: uiState.pausedEntryName ?: "",
+            recentNames = uiState.recentEntryNames,
             onDismiss = { showRenameDialog = false },
             onRename = { newName ->
                 viewModel.updateRunningEntryName(newName)
@@ -337,7 +319,12 @@ fun ActiveProjectCard(
     monthlyHours: Long,
     @Suppress("UNUSED_PARAMETER") currentPeriod: net.luisico.howmanyhours.repository.Period?,
     isTracking: Boolean,
+    isPaused: Boolean,
+    pausedAccumulatedMinutes: Long,
+    pausedEntryName: String?,
     onStartStop: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
     onDiscard: () -> Unit,
     onAddEntry: () -> Unit,
     onRenameEntry: () -> Unit
@@ -363,23 +350,30 @@ fun ActiveProjectCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Current Run Time (only show when tracking)
-            if (isTracking) {
+            // Current Run / Paused section
+            if (isTracking || isPaused) {
+                val displayMinutes = if (isTracking) {
+                    pausedAccumulatedMinutes + (runningTimeEntry?.getDurationInMinutes() ?: 0)
+                } else {
+                    pausedAccumulatedMinutes
+                }
+                val displayName = if (isTracking) runningTimeEntry?.name else pausedEntryName
+
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Current Run",
+                        text = if (isPaused) "Paused" else "Current Run",
                         style = MaterialTheme.typography.titleLarge,
-                        color = Color(0xFF2E7D32), // Dark green text
+                        color = if (isPaused) Color(0xFFFFB300) else Color(0xFF2E7D32),
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = formatDuration(runningTimeEntry?.getDurationInMinutes() ?: 0),
+                        text = formatDuration(displayMinutes),
                         style = MaterialTheme.typography.displayMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF2E7D32) // Dark green text
+                        color = if (isPaused) Color(0xFFFFB300) else Color(0xFF2E7D32)
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -391,14 +385,14 @@ fun ActiveProjectCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = runningTimeEntry?.name?.let { "\"$it\"" } ?: "Unnamed",
+                            text = displayName?.let { "\"$it\"" } ?: "Unnamed",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (runningTimeEntry?.name != null) {
+                            color = if (displayName != null) {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                             },
-                            fontStyle = if (runningTimeEntry?.name == null) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
+                            fontStyle = if (displayName == null) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         IconButton(
@@ -492,57 +486,70 @@ fun ActiveProjectCard(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Action Buttons
-            if (isTracking) {
-                Row(
+            when {
+                isTracking -> Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
                         onClick = onStartStop,
-                        modifier = Modifier.size(width = 140.dp, height = 56.dp)
+                        modifier = Modifier.size(width = 120.dp, height = 56.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Stop,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Stop",
-                            style = MaterialTheme.typography.labelLarge
-                        )
+                        Text("Stop", style = MaterialTheme.typography.labelLarge)
                     }
-                    
+                    IconButton(
+                        onClick = onPause,
+                        modifier = Modifier.size(44.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = Color(0xFFFFB300)
+                        )
+                    ) {
+                        Icon(Icons.Filled.Pause, contentDescription = "Pause tracking", modifier = Modifier.size(26.dp))
+                    }
                     IconButton(
                         onClick = onDiscard,
                         modifier = Modifier.size(40.dp),
-                        colors = IconButtonDefaults.iconButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
+                        colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFFE65100))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.discard_tracking),
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.discard_tracking), modifier = Modifier.size(24.dp))
                     }
                 }
-            } else {
-                Button(
+                isPaused -> Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onResume,
+                        modifier = Modifier.size(width = 148.dp, height = 56.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Resume", style = MaterialTheme.typography.labelLarge)
+                    }
+                    IconButton(
+                        onClick = onStartStop,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(Icons.Filled.Stop, contentDescription = "Stop and save", modifier = Modifier.size(26.dp))
+                    }
+                    IconButton(
+                        onClick = onDiscard,
+                        modifier = Modifier.size(40.dp),
+                        colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFFE65100))
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.discard_tracking), modifier = Modifier.size(24.dp))
+                    }
+                }
+                else -> Button(
                     onClick = onStartStop,
                     enabled = activeProject != null,
                     modifier = Modifier.size(width = 160.dp, height = 56.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Start",
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                    Text("Start", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -556,7 +563,6 @@ fun ProjectCard(
     isTracking: Boolean,
     monthlyHours: Long,
     onProjectClick: () -> Unit,
-    onDeleteClick: () -> Unit,
     onDetailsClick: () -> Unit
 ) {
     val isArchived = project.isArchived
@@ -642,22 +648,12 @@ fun ProjectCard(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = onDetailsClick) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = "Project details",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                IconButton(onClick = onDeleteClick) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete project",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
+            IconButton(onClick = onDetailsClick) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = "Project details",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
@@ -704,6 +700,7 @@ fun CreateProjectDialog(
 
 @Composable
 fun AddEntryDialog(
+    recentNames: List<String>,
     onDismiss: () -> Unit,
     onAddEntry: (Long, String?) -> Unit
 ) {
@@ -730,8 +727,29 @@ fun AddEntryDialog(
                     placeholder = { Text("e.g., Client meeting, Code review") },
                     minLines = 2,
                     maxLines = 2,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     textStyle = LocalTextStyle.current.copy(fontSize = 17.sp)
                 )
+                if (recentNames.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        recentNames.forEach { name ->
+                            SuggestionChip(
+                                onClick = { entryName = name },
+                                label = {
+                                    Text(
+                                        text = name,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.widthIn(max = 120.dp)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -759,6 +777,7 @@ fun AddEntryDialog(
 @Composable
 fun RenameEntryDialog(
     currentName: String,
+    recentNames: List<String>,
     onDismiss: () -> Unit,
     onRename: (String) -> Unit
 ) {
@@ -768,13 +787,38 @@ fun RenameEntryDialog(
         onDismissRequest = onDismiss,
         title = { Text("Name Time Entry") },
         text = {
-            OutlinedTextField(
-                value = entryName,
-                onValueChange = { entryName = it },
-                label = { Text("Entry Name (optional)") },
-                placeholder = { Text("e.g., Client meeting, Code review") },
-                singleLine = true
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = entryName,
+                    onValueChange = { entryName = it },
+                    label = { Text("Entry Name (optional)") },
+                    placeholder = { Text("e.g., Client meeting, Code review") },
+                    minLines = 2,
+                    maxLines = 2,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 17.sp)
+                )
+                if (recentNames.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        recentNames.forEach { name ->
+                            SuggestionChip(
+                                onClick = { entryName = name },
+                                label = {
+                                    Text(
+                                        text = name,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.widthIn(max = 120.dp)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(

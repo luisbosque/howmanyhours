@@ -29,9 +29,34 @@ fun ProjectDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val project by viewModel.getProjectById(projectId).collectAsState(initial = null)
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(projectId) {
         viewModel.loadCurrentPeriod(projectId)
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Project") },
+            text = { Text("Are you sure you want to delete \"${project?.name}\"? All time entries will be permanently deleted. This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        project?.let { viewModel.deleteProject(it) }
+                        onNavigateBack()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE65100))
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -85,6 +110,17 @@ fun ProjectDetailScreen(
                     Icon(Icons.Default.History, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("View Period History")
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE65100))
+                ) {
+                    Text("Delete Project")
                 }
             }
         }

@@ -51,6 +51,8 @@ class TimeTrackingViewModel(
     init {
         loadActiveProject()
         loadRunningTimeEntry()
+        // Clear any paused interval flags left by a session that ended without a proper stop
+        viewModelScope.launch { repository.cleanupOrphanedPausedIntervals() }
         refreshAllProjectsMonthlyHours()
         startTimerIfNeeded()
 
@@ -319,47 +321,104 @@ class TimeTrackingViewModel(
         }
     }
 
-    fun stopTracking() {
+    fun pauseTracking() {
         viewModelScope.launch {
-            repository.stopTracking()
+            val currentName = _uiState.value.runningTimeEntry?.name
+            val savedEntry = repository.pauseTracking() ?: return@launch
+
             stopTimer()
-            _uiState.update { 
+            TimeTrackingNotificationService.stopService(context)
+
+            _uiState.update {
                 it.copy(
+                    isTracking = false,
+                    isPaused = true,
                     runningTimeEntry = null,
-                    isTracking = false
+                    pausedSessionEntryIds = it.pausedSessionEntryIds + savedEntry.id,
+                    pausedAccumulatedMinutes = it.pausedAccumulatedMinutes + savedEntry.getDurationInMinutes(),
+                    pausedEntryName = currentName
                 )
             }
-            
-            // Stop notification service
-            Log.d(TAG, "Stopping notification service")
+        }
+    }
+
+    fun resumeTracking() {
+        viewModelScope.launch {
+            val project = _uiState.value.activeProject ?: return@launch
+            val entryName = _uiState.value.pausedEntryName
+
+            val timeEntry = repository.startTracking(project.id, entryName)
+
+            _uiState.update {
+                it.copy(
+                    isTracking = true,
+                    isPaused = false,
+                    runningTimeEntry = timeEntry
+                )
+            }
+            startTimer()
+            TimeTrackingNotificationService.startService(context, project.name, timeEntry.startTime.time)
+        }
+    }
+
+    fun stopTracking() {
+        viewModelScope.launch {
+            val pausedIds = _uiState.value.pausedSessionEntryIds
+
+            if (_uiState.value.isTracking) {
+                repository.stopTracking()
+            }
+            // If paused, the last interval was already saved — remove the paused flags from all session entries
+            if (pausedIds.isNotEmpty()) {
+                repository.completePausedSession(pausedIds)
+            }
+
+            stopTimer()
             TimeTrackingNotificationService.stopService(context)
-            
-            // Update period hours after stopping - with a small delay to ensure DB is updated
+
+            _uiState.update {
+                it.copy(
+                    runningTimeEntry = null,
+                    isTracking = false,
+                    isPaused = false,
+                    pausedSessionEntryIds = emptyList(),
+                    pausedAccumulatedMinutes = 0L,
+                    pausedEntryName = null
+                )
+            }
+
             val activeProject = _uiState.value.activeProject
             if (activeProject != null) {
-                delay(100) // Small delay to ensure database write completes
+                delay(100)
                 loadCurrentPeriod(activeProject.id)
-                refreshAllProjectsMonthlyHours() // Refresh all projects' monthly hours
+                refreshAllProjectsMonthlyHours()
             }
         }
     }
 
     fun discardTracking() {
         viewModelScope.launch {
-            repository.discardTracking()
+            if (_uiState.value.isTracking) {
+                repository.discardTracking()
+            }
+            val pausedIds = _uiState.value.pausedSessionEntryIds
+            if (pausedIds.isNotEmpty()) {
+                repository.deletePausedIntervals(pausedIds)
+            }
+
             stopTimer()
-            _uiState.update { 
+            TimeTrackingNotificationService.stopService(context)
+
+            _uiState.update {
                 it.copy(
                     runningTimeEntry = null,
-                    isTracking = false
+                    isTracking = false,
+                    isPaused = false,
+                    pausedSessionEntryIds = emptyList(),
+                    pausedAccumulatedMinutes = 0L,
+                    pausedEntryName = null
                 )
             }
-            
-            // Stop notification service
-            Log.d(TAG, "Stopping notification service")
-            TimeTrackingNotificationService.stopService(context)
-            
-            // Monthly hours don't need to be updated since entry was discarded
         }
     }
 
@@ -397,17 +456,23 @@ class TimeTrackingViewModel(
             if (pendingProject != null) {
                 stopTimer()
                 repository.stopTracking()
-                
-                // Stop current notification service
+                val pausedIds = _uiState.value.pausedSessionEntryIds
+                if (pausedIds.isNotEmpty()) {
+                    repository.completePausedSession(pausedIds)
+                }
                 TimeTrackingNotificationService.stopService(context)
-                
-                startTracking(pendingProject)
-                _uiState.update { 
+
+                _uiState.update {
                     it.copy(
+                        isPaused = false,
+                        pausedSessionEntryIds = emptyList(),
+                        pausedAccumulatedMinutes = 0L,
+                        pausedEntryName = null,
                         showSwitchConfirmation = false,
                         pendingProject = null
                     )
                 }
+                startTracking(pendingProject)
             }
         }
     }
@@ -418,17 +483,23 @@ class TimeTrackingViewModel(
             if (pendingProject != null) {
                 stopTimer()
                 repository.discardTracking()
-                
-                // Stop current notification service
+                val pausedIds = _uiState.value.pausedSessionEntryIds
+                if (pausedIds.isNotEmpty()) {
+                    repository.deletePausedIntervals(pausedIds)
+                }
                 TimeTrackingNotificationService.stopService(context)
-                
-                startTracking(pendingProject)
-                _uiState.update { 
+
+                _uiState.update {
                     it.copy(
+                        isPaused = false,
+                        pausedSessionEntryIds = emptyList(),
+                        pausedAccumulatedMinutes = 0L,
+                        pausedEntryName = null,
                         showSwitchConfirmation = false,
                         pendingProject = null
                     )
                 }
+                startTracking(pendingProject)
             }
         }
     }
@@ -616,12 +687,29 @@ class TimeTrackingViewModel(
 
     fun updateRunningEntryName(newName: String) {
         viewModelScope.launch {
+            val trimmedName = newName.trim().ifEmpty { null }
             val runningEntry = _uiState.value.runningTimeEntry
-            if (runningEntry != null) {
-                repository.updateEntryName(runningEntry.id, newName)
-                val updatedEntry = repository.getRunningTimeEntry()
-                _uiState.update { it.copy(runningTimeEntry = updatedEntry) }
+            when {
+                runningEntry != null -> {
+                    repository.updateEntryName(runningEntry.id, newName)
+                    val updatedEntry = repository.getRunningTimeEntry()
+                    _uiState.update { it.copy(runningTimeEntry = updatedEntry) }
+                }
+                _uiState.value.isPaused -> {
+                    _uiState.update { it.copy(pausedEntryName = trimmedName) }
+                    val lastEntryId = _uiState.value.pausedSessionEntryIds.lastOrNull()
+                    if (lastEntryId != null) {
+                        repository.updateEntryName(lastEntryId, newName)
+                    }
+                }
             }
+        }
+    }
+
+    fun loadRecentEntryNames() {
+        viewModelScope.launch {
+            val names = repository.getRecentEntryNames()
+            _uiState.update { it.copy(recentEntryNames = names) }
         }
     }
 
@@ -665,6 +753,10 @@ data class TimeTrackingUiState(
     val activeProject: Project? = null,
     val runningTimeEntry: TimeEntry? = null,
     val isTracking: Boolean = false,
+    val isPaused: Boolean = false,
+    val pausedSessionEntryIds: List<Long> = emptyList(),
+    val pausedAccumulatedMinutes: Long = 0L,
+    val pausedEntryName: String? = null,
     val monthlyHours: Long = 0,
     val projectMonthlyHours: Map<Long, Long> = emptyMap(),
     val showSwitchConfirmation: Boolean = false,
@@ -673,5 +765,6 @@ data class TimeTrackingUiState(
     val allPeriods: List<Period> = emptyList(),
     val selectedPeriod: Period? = null,
     val periodEntries: List<TimeEntry> = emptyList(),
-    val overlapWarning: OverlapWarning? = null
+    val overlapWarning: OverlapWarning? = null,
+    val recentEntryNames: List<String> = emptyList()
 )

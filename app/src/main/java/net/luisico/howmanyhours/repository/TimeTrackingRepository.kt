@@ -86,17 +86,50 @@ class TimeTrackingRepository(
 
     suspend fun getTimeEntriesCount(): Int = timeEntryDao.getTimeEntriesCount()
 
-    suspend fun startTracking(projectId: Long): TimeEntry {
+    suspend fun startTracking(projectId: Long, name: String? = null): TimeEntry {
         stopAllTracking()
         activateProject(projectId)
-        
+
         val timeEntry = TimeEntry(
             projectId = projectId,
             startTime = Date(),
-            isRunning = true
+            isRunning = true,
+            name = name
         )
         val id = timeEntryDao.insertTimeEntry(timeEntry)
         return timeEntry.copy(id = id)
+    }
+
+    // Saves the running interval with isPausedInterval=true (part of an in-progress paused session)
+    suspend fun pauseTracking(): TimeEntry? {
+        val runningEntry = getRunningTimeEntry() ?: return null
+        val savedEntry = runningEntry.copy(endTime = Date(), isRunning = false, isPausedInterval = true)
+        timeEntryDao.updateTimeEntry(savedEntry)
+        return savedEntry
+    }
+
+    // Removes isPausedInterval flag from completed session entries (called on final stop)
+    suspend fun completePausedSession(pausedEntryIds: List<Long>) {
+        if (pausedEntryIds.isNotEmpty()) {
+            timeEntryDao.clearPausedIntervalFlags(pausedEntryIds)
+        }
+    }
+
+    // Deletes paused intervals — double-filtered by both ID and the paused flag for safety
+    suspend fun deletePausedIntervals(ids: List<Long>) {
+        if (ids.isNotEmpty()) {
+            timeEntryDao.deletePausedIntervals(ids)
+        }
+    }
+
+    // Clears any orphaned paused flags left by a session that ended abnormally (app crash while paused)
+    suspend fun cleanupOrphanedPausedIntervals() {
+        timeEntryDao.clearAllPausedIntervalFlags()
+    }
+
+    suspend fun getRecentEntryNames(): List<String> {
+        val sevenDaysAgo = Date(System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000)
+        return timeEntryDao.getRecentEntryNames(sevenDaysAgo)
     }
 
     suspend fun stopTracking(): TimeEntry? {

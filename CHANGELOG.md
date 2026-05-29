@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Edit name button on every entry in the period detail view (any entry type)
 - Restore backup now shows a confirmation dialog comparing backup vs current data before proceeding; warns when current data is newer than the backup
 - Backup list shows the schema version of each backup
+- Pause tracking: saves the current interval and suspends the timer; resume continues with accumulated work time; discarding a paused session deletes all saved intervals
+- Recent entry name suggestions in all name/rename dialogs: scrollable chip row with distinct names from the last 7 days, tap to fill
+- Auto-capitalize first letter in entry name fields
+- Delete Project button moved to project detail screen, with confirmation dialog
 
 ### Changed
 - Current period indicator in history replaced with a colored left-edge bar on the card

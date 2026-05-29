@@ -24,7 +24,8 @@ data class TimeEntry(
     val endTime: Date? = null,
     val isRunning: Boolean = false,
     val name: String? = null,
-    val isManual: Boolean = false
+    val isManual: Boolean = false,
+    val isPausedInterval: Boolean = false
 ) {
     fun getDurationInMinutes(): Long {
         val end = endTime ?: Date()
