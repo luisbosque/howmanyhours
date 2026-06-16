@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import java.text.SimpleDateFormat
 import java.util.*
 import java.util.TimeZone
 
@@ -517,8 +518,16 @@ class TimeTrackingViewModel(
         val projects = repository.getAllProjects().first()
         val writer = outputStream.bufferedWriter()
 
+        // Local time in the device timezone, e.g. 2026-06-12 07:28:07.
+        // No offset to make it more compatible with normal csv-reading apps;
+        // the timezone is reported separately in its own column.
+        val timeZone = TimeZone.getDefault()
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        dateFormat.timeZone = timeZone
+        val timeZoneId = timeZone.id
+
         try {
-            writer.write("Project,Entry Name,Start Time,End Time,Duration (minutes),Type\n")
+            writer.write("Project,Entry Name,Start Time,End Time,Duration (minutes),Type,Timezone\n")
 
             val batchSize = 1000
             var offset = 0
@@ -534,8 +543,11 @@ class TimeTrackingViewModel(
                     } ?: ""
                     val type = if (entry.isManual) "manual" else "automatic"
 
+                    val startTime = dateFormat.format(entry.startTime)
+                    val endTime = entry.endTime?.let { dateFormat.format(it) } ?: "Running"
+
                     writer.write(
-                        "${project?.name ?: "Unknown"},$entryName,${entry.startTime},${entry.endTime ?: "Running"},${entry.getDurationInMinutes()},$type\n"
+                        "${project?.name ?: "Unknown"},$entryName,$startTime,$endTime,${entry.getDurationInMinutes()},$type,$timeZoneId\n"
                     )
                 }
 

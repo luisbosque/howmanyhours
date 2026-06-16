@@ -2,13 +2,7 @@ package net.luisico.howmanyhours.ui.screens
 
 import android.content.Context
 import android.content.Intent
-import android.content.ContentValues
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
 import java.io.File
-import java.io.FileWriter
-import java.io.IOException
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -75,8 +69,8 @@ fun SettingsScreen(
             item {
                 SettingsSection(title = "Data Export") {
                     SettingsItem(
-                        title = "Download CSV",
-                        subtitle = "Download all time tracking data as CSV file",
+                        title = "Export CSV",
+                        subtitle = "Export all time tracking data and share it to any app",
                         icon = Icons.Default.Share,
                         onClick = {
                             scope.launch {
@@ -84,13 +78,10 @@ fun SettingsScreen(
                                 try {
                                     val result = exportCsvFile(context, viewModel)
                                     if (result.success) {
-                                        snackbarHostState.showSnackbar(
-                                            message = "CSV saved to: ${result.filePath}",
-                                            duration = SnackbarDuration.Long
-                                        )
+                                        shareCsvFile(context, result.filePath)
                                     } else {
                                         snackbarHostState.showSnackbar(
-                                            message = "Download failed: ${result.error}",
+                                            message = "Export failed: ${result.error}",
                                             duration = SnackbarDuration.Short
                                         )
                                     }
@@ -226,13 +217,10 @@ private suspend fun exportCsvFile(context: Context, viewModel: TimeTrackingViewM
     val fileName = "time_tracking_$timestamp.csv"
 
     return try {
-        // Use app-specific external storage (Documents folder)
-        // This is private to the app but accessible via file manager
-        // No storage permission needed, more secure than public Downloads
-        val documentsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            ?: return DownloadResult(success = false, error = "External storage not available")
-
-        val file = File(documentsDir, fileName)
+        // Write to a private cache folder, then share it via FileProvider so the
+        // user can store it wherever they want.
+        val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val file = File(exportsDir, fileName)
 
         // Stream CSV data directly to file in batches to avoid memory issues
         file.outputStream().use { outputStream ->
@@ -244,4 +232,26 @@ private suspend fun exportCsvFile(context: Context, viewModel: TimeTrackingViewM
     } catch (e: Exception) {
         DownloadResult(success = false, error = e.message ?: "Unknown error")
     }
+}
+
+private fun shareCsvFile(context: Context, filePath: String) {
+    val file = File(filePath)
+    val uri = androidx.core.content.FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file
+    )
+
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/csv"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, file.name)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    context.startActivity(
+        Intent.createChooser(shareIntent, "Share CSV").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    )
 }

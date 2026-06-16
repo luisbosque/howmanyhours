@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Delete Project button moved to project detail screen, with confirmation dialog
 
 ### Changed
+- CSV export now opens a system share sheet (via FileProvider) instead of silently writing to inaccessible app-specific external storage, letting you save or send the file anywhere
+- CSV export now writes Start Time and End Time as `yyyy-MM-dd HH:mm:ss` in the device timezone (instead of Java's default date format) so it's easier to convert to datetime in other applications, plus a new Timezone column (IANA zone ID) identifying the timezone used
 - Current period indicator in history replaced with a colored left-edge bar on the card
 - Settings and Backup screens use standard scaffold toolbar instead of custom header
 - Back navigation via device back button supported across all screens
